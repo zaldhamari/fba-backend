@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FBA App — UI Options</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    background: #111;
+    color: #fff;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  h1 { text-align: center; font-size: 1.6rem; margin-bottom: 6px; }
+  .subtitle { text-align: center; color: #888; font-size: 0.9rem; margin-bottom: 48px; }
+
+  .options-grid {
+    display: flex;
+    gap: 32px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+  }
+
+  .option-label {
+    font-size: 0.85rem;
+    color: #888;
+    text-align: center;
+    max-width: 200px;
+  }
+  .option-label strong { display: block; font-size: 1rem; color: #fff; margin-bottom: 4px; }
+
+  .select-btn {
+    padding: 8px 24px;
+    border-radius: 30px;
+    border: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .select-btn:hover { opacity: 0.8; }
+
+  /* PHONE FRAME */
+  .phone {
+    width: 200px;
+    height: 420px;
+    border-radius: 36px;
+    border: 6px solid #333;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    flex-shrink: 0;
+  }
+  .phone::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 8px;
+    background: #333;
+    border-radius: 4px;
+    z-index: 10;
+  }
+  .phone-screen {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ===== OPTION 1: DARK GOLD (PREMIUM) ===== */
+  .o1 .phone-screen { background: #0a0a0f; }
+  .o1-header {
+    padding: 28px 14px 12px;
+    background: linear-gradient(180deg, #0a0a0f 0%, #0a0a0f 100%);
+  }
+  .o1-logo {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+  }
+  .o1-logo-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, #d4af37, #f0d060);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .o1-logo-text { font-size: 0.85rem; font-weight: 700; color: #fff; }
+  .o1-greeting { font-size: 0.7rem; color: #666; margin-bottom: 2px; }
+  .o1-title { font-size: 1rem; font-weight: 700; color: #fff; }
+  .o1-search {
+    background: #1a1a2a; border-radius: 10px; padding: 8px 10px;
+    display: flex; align-items: center; gap: 6px; margin-top: 10px;
+  }
+  .o1-search-icon { font-size: 10px; color: #555; }
+  .o1-search-text { font-size: 0.65rem; color: #555; }
+  .o1-tabs {
+    display: flex; padding: 0 14px; gap: 6px; margin-top: 10px;
+  }
+  .o1-tab {
+    padding: 4px 8px; border-radius: 8px; font-size: 0.55rem; font-weight: 600;
+  }
+  .o1-tab.active { background: #d4af37; color: #000; }
+  .o1-tab.inactive { background: #1a1a2a; color: #666; }
+  .o1-cards { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .o1-card {
+    background: #1a1a2a; border-radius: 10px; padding: 10px;
+    border-left: 2px solid #d4af37;
+  }
+  .o1-card-title { font-size: 0.6rem; color: #fff; font-weight: 600; margin-bottom: 4px; }
+  .o1-card-row { display: flex; justify-content: space-between; align-items: center; }
+  .o1-card-price { font-size: 0.75rem; font-weight: 700; color: #d4af37; }
+  .o1-card-badge {
+    font-size: 0.5rem; padding: 2px 5px; border-radius: 4px;
+    background: rgba(212,175,55,0.2); color: #d4af37;
+  }
+  .o1-card-meta { font-size: 0.5rem; color: #555; margin-top: 2px; }
+  .o1-bottom-nav {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: #0d0d18; border-top: 1px solid #1a1a2a;
+    display: flex; justify-content: space-around; padding: 8px 0 12px;
+  }
+  .o1-nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .o1-nav-icon { font-size: 14px; }
+  .o1-nav-label { font-size: 0.45rem; color: #555; }
+  .o1-nav-label.active { color: #d4af37; }
+
+  /* ===== OPTION 2: CLEAN WHITE (MODERN iOS) ===== */
+  .o2 .phone-screen { background: #f2f2f7; }
+  .o2-header {
+    background: #fff; padding: 28px 14px 12px;
+    border-bottom: 1px solid #e5e5ea;
+  }
+  .o2-logo { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .o2-logo-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, #007aff, #34aadc);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .o2-logo-text { font-size: 0.85rem; font-weight: 700; color: #000; }
+  .o2-title { font-size: 1.1rem; font-weight: 800; color: #000; margin-bottom: 10px; }
+  .o2-search {
+    background: #e5e5ea; border-radius: 10px; padding: 7px 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .o2-search-icon { font-size: 10px; color: #8e8e93; }
+  .o2-search-text { font-size: 0.65rem; color: #8e8e93; }
+  .o2-section-title { font-size: 0.7rem; font-weight: 700; color: #000; padding: 10px 14px 6px; }
+  .o2-cards { padding: 0 14px; display: flex; flex-direction: column; gap: 6px; }
+  .o2-card {
+    background: #fff; border-radius: 12px; padding: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .o2-card-title { font-size: 0.58rem; color: #000; font-weight: 600; margin-bottom: 4px; }
+  .o2-card-row { display: flex; justify-content: space-between; align-items: center; }
+  .o2-card-price { font-size: 0.7rem; font-weight: 700; color: #007aff; }
+  .o2-card-badge {
+    font-size: 0.48rem; padding: 2px 5px; border-radius: 4px;
+    background: #e8f5e9; color: #34c759;
+  }
+  .o2-card-meta { font-size: 0.48rem; color: #8e8e93; margin-top: 2px; }
+  .o2-bottom-nav {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.95);
+    border-top: 1px solid #e5e5ea;
+    display: flex; justify-content: space-around; padding: 8px 0 12px;
+    backdrop-filter: blur(10px);
+  }
+  .o2-nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .o2-nav-icon { font-size: 14px; }
+  .o2-nav-label { font-size: 0.45rem; color: #8e8e93; }
+  .o2-nav-label.active { color: #007aff; }
+
+  /* ===== OPTION 3: BOLD GRADIENT (CONSUMER) ===== */
+  .o3 .phone-screen {
+    background: linear-gradient(160deg, #1a0533 0%, #0d1b4b 100%);
+  }
+  .o3-header { padding: 28px 14px 12px; }
+  .o3-logo { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .o3-logo-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    display: flex; align-items: center; justify-content: center; font-size: 14px;
+  }
+  .o3-logo-text { font-size: 0.85rem; font-weight: 800; color: #fff; }
+  .o3-title { font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 4px; }
+  .o3-subtitle { font-size: 0.6rem; color: rgba(255,255,255,0.5); margin-bottom: 10px; }
+  .o3-search {
+    background: rgba(255,255,255,0.1); border-radius: 10px; padding: 8px 10px;
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .o3-search-icon { font-size: 10px; color: rgba(255,255,255,0.4); }
+  .o3-search-text { font-size: 0.65rem; color: rgba(255,255,255,0.4); }
+  .o3-stats {
+    display: flex; gap: 6px; padding: 10px 14px;
+  }
+  .o3-stat-card {
+    flex: 1; background: rgba(255,255,255,0.08); border-radius: 10px;
+    padding: 8px; border: 1px solid rgba(255,255,255,0.1);
+  }
+  .o3-stat-num { font-size: 0.85rem; font-weight: 800; }
+  .o3-stat-label { font-size: 0.45rem; color: rgba(255,255,255,0.5); margin-top: 1px; }
+  .o3-cards { padding: 0 14px; display: flex; flex-direction: column; gap: 6px; }
+  .o3-card {
+    background: rgba(255,255,255,0.07); border-radius: 12px; padding: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .o3-card-title { font-size: 0.58rem; color: #fff; font-weight: 600; margin-bottom: 4px; }
+  .o3-card-row { display: flex; justify-content: space-between; align-items: center; }
+  .o3-card-price { font-size: 0.7rem; font-weight: 700; color: #a855f7; }
+  .o3-card-badge {
+    font-size: 0.48rem; padding: 2px 5px; border-radius: 4px;
+    background: linear-gradient(135deg, #a855f7, #ec4899); color: #fff;
+  }
+  .o3-card-meta { font-size: 0.48rem; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .o3-bottom-nav {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(10,5,25,0.9);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex; justify-content: space-around; padding: 8px 0 12px;
+  }
+  .o3-nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .o3-nav-icon { font-size: 14px; }
+  .o3-nav-label { font-size: 0.45rem; color: rgba(255,255,255,0.3); }
+  .o3-nav-label.active { color: #a855f7; }
+
+  /* ===== OPTION 4: MINIMAL (ULTRA CLEAN) ===== */
+  .o4 .phone-screen { background: #ffffff; }
+  .o4-header { padding: 32px 14px 12px; }
+  .o4-eyebrow { font-size: 0.55rem; color: #999; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .o4-title { font-size: 1.2rem; font-weight: 800; color: #000; margin-bottom: 12px; line-height: 1.2; }
+  .o4-title span { color: #000; }
+  .o4-search {
+    border: 1.5px solid #000; border-radius: 10px; padding: 8px 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .o4-search-icon { font-size: 10px; color: #000; }
+  .o4-search-text { font-size: 0.65rem; color: #999; }
+  .o4-section {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 14px 6px;
+  }
+  .o4-section-title { font-size: 0.65rem; font-weight: 800; color: #000; }
+  .o4-section-link { font-size: 0.55rem; color: #999; }
+  .o4-cards { padding: 0 14px; display: flex; flex-direction: column; gap: 8px; }
+  .o4-card {
+    border: 1.5px solid #000; border-radius: 12px; padding: 10px;
+  }
+  .o4-card-title { font-size: 0.58rem; color: #000; font-weight: 700; margin-bottom: 5px; }
+  .o4-card-row { display: flex; justify-content: space-between; align-items: center; }
+  .o4-card-price { font-size: 0.7rem; font-weight: 800; color: #000; }
+  .o4-card-badge {
+    font-size: 0.48rem; padding: 2px 5px; border-radius: 4px;
+    background: #000; color: #fff;
+  }
+  .o4-card-meta { font-size: 0.48rem; color: #999; margin-top: 3px; }
+  .o4-bottom-nav {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: #fff; border-top: 1.5px solid #000;
+    display: flex; justify-content: space-around; padding: 8px 0 12px;
+  }
+  .o4-nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .o4-nav-icon { font-size: 14px; }
+  .o4-nav-label { font-size: 0.45rem; color: #999; }
+  .o4-nav-label.active { color: #000; font-weight: 700; }
+
+  .selected-banner {
+    display: none;
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: #000; padding: 14px 32px;
+    border-radius: 30px; font-weight: 700; font-size: 0.95rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+
+<h1>FBA Assistant — iPhone UI Options</h1>
+<p class="subtitle">Pick the style you want. Click "Select" on your favourite.</p>
+
+<div class="options-grid">
+
+  <!-- OPTION 1: DARK GOLD -->
+  <div class="option o1">
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="o1-header">
+          <div class="o1-logo">
+            <div class="o1-logo-icon">📦</div>
+            <span class="o1-logo-text">FBA Pro</span>
+          </div>
+          <div class="o1-greeting">Good morning,</div>
+          <div class="o1-title">Find your next product</div>
+          <div class="o1-search">
+            <span class="o1-search-icon">🔍</span>
+            <span class="o1-search-text">Search Amazon products…</span>
+          </div>
+          <div class="o1-tabs">
+            <div class="o1-tab active">Research</div>
+            <div class="o1-tab inactive">Suppliers</div>
+            <div class="o1-tab inactive">Brand</div>
+          </div>
+        </div>
+        <div class="o1-cards">
+          <div class="o1-card">
+            <div class="o1-card-title">Bamboo Cutting Board Set</div>
+            <div class="o1-card-row">
+              <span class="o1-card-price">$34.99</span>
+              <span class="o1-card-badge">Good Opp.</span>
+            </div>
+            <div class="o1-card-meta">⭐ 4.5 · 124 reviews · Low competition</div>
+          </div>
+          <div class="o1-card">
+            <div class="o1-card-title">Premium Bamboo Board XL</div>
+            <div class="o1-card-row">
+              <span class="o1-card-price">$28.99</span>
+              <span class="o1-card-badge">Moderate</span>
+            </div>
+            <div class="o1-card-meta">⭐ 4.3 · 312 reviews · Medium</div>
+          </div>
+          <div class="o1-card">
+            <div class="o1-card-title">Organic Bamboo Kitchen Board</div>
+            <div class="o1-card-row">
+              <span class="o1-card-price">$22.99</span>
+              <span class="o1-card-badge" style="background:rgba(244,67,54,0.2);color:#f44336">Saturated</span>
+            </div>
+            <div class="o1-card-meta">⭐ 4.7 · 2.1k reviews · High</div>
+          </div>
+        </div>
+        <div class="o1-bottom-nav">
+          <div class="o1-nav-item"><span class="o1-nav-icon">🔍</span><span class="o1-nav-label active">Research</span></div>
+          <div class="o1-nav-item"><span class="o1-nav-icon">🏭</span><span class="o1-nav-label">Suppliers</span></div>
+          <div class="o1-nav-item"><span class="o1-nav-icon">💰</span><span class="o1-nav-label">Calculate</span></div>
+          <div class="o1-nav-item"><span class="o1-nav-icon">✨</span><span class="o1-nav-label">Brand</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <strong>Dark Gold — Premium</strong>
+      Dark background, gold accents. Feels like a serious trading/finance tool.
+    </div>
+    <button class="select-btn" style="background:#d4af37;color:#000" onclick="select('Dark Gold — Premium')">Select this style</button>
+  </div>
+
+  <!-- OPTION 2: CLEAN WHITE -->
+  <div class="option o2">
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="o2-header">
+          <div class="o2-logo">
+            <div class="o2-logo-icon">📦</div>
+            <span class="o2-logo-text">FBA Pro</span>
+          </div>
+          <div class="o2-title">Product Research</div>
+          <div class="o2-search">
+            <span class="o2-search-icon">🔍</span>
+            <span class="o2-search-text">Search Amazon products…</span>
+          </div>
+        </div>
+        <div class="o2-section-title">Top Results</div>
+        <div class="o2-cards">
+          <div class="o2-card">
+            <div class="o2-card-title">Bamboo Cutting Board Set</div>
+            <div class="o2-card-row">
+              <span class="o2-card-price">$34.99</span>
+              <span class="o2-card-badge">Good Opp.</span>
+            </div>
+            <div class="o2-card-meta">⭐ 4.5 · 124 reviews · Low competition</div>
+          </div>
+          <div class="o2-card">
+            <div class="o2-card-title">Premium Bamboo Board XL</div>
+            <div class="o2-card-row">
+              <span class="o2-card-price">$28.99</span>
+              <span class="o2-card-badge" style="background:#fff3e0;color:#ff9800">Moderate</span>
+            </div>
+            <div class="o2-card-meta">⭐ 4.3 · 312 reviews · Medium</div>
+          </div>
+          <div class="o2-card">
+            <div class="o2-card-title">Organic Bamboo Kitchen Board</div>
+            <div class="o2-card-row">
+              <span class="o2-card-price">$22.99</span>
+              <span class="o2-card-badge" style="background:#fce4ec;color:#e91e63">Saturated</span>
+            </div>
+            <div class="o2-card-meta">⭐ 4.7 · 2.1k reviews · High</div>
+          </div>
+        </div>
+        <div class="o2-bottom-nav">
+          <div class="o2-nav-item"><span class="o2-nav-icon">🔍</span><span class="o2-nav-label active">Research</span></div>
+          <div class="o2-nav-item"><span class="o2-nav-icon">🏭</span><span class="o2-nav-label">Suppliers</span></div>
+          <div class="o2-nav-item"><span class="o2-nav-icon">💰</span><span class="o2-nav-label">Calculate</span></div>
+          <div class="o2-nav-item"><span class="o2-nav-icon">✨</span><span class="o2-nav-label">Brand</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <strong>Clean White — Modern iOS</strong>
+      Looks native to iPhone. Familiar, trustworthy, easy to use.
+    </div>
+    <button class="select-btn" style="background:#007aff;color:#fff" onclick="select('Clean White — Modern iOS')">Select this style</button>
+  </div>
+
+  <!-- OPTION 3: BOLD GRADIENT -->
+  <div class="option o3">
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="o3-header">
+          <div class="o3-logo">
+            <div class="o3-logo-icon">📦</div>
+            <span class="o3-logo-text">FBA Pro</span>
+          </div>
+          <div class="o3-title">Find Your Next Winner 🚀</div>
+          <div class="o3-subtitle">Search · Source · Brand · Launch</div>
+          <div class="o3-search">
+            <span class="o3-search-icon">🔍</span>
+            <span class="o3-search-text">What product are you hunting?</span>
+          </div>
+        </div>
+        <div class="o3-stats">
+          <div class="o3-stat-card">
+            <div class="o3-stat-num" style="color:#a855f7">$34.99</div>
+            <div class="o3-stat-label">Avg Price</div>
+          </div>
+          <div class="o3-stat-card">
+            <div class="o3-stat-num" style="color:#ec4899">Low</div>
+            <div class="o3-stat-label">Competition</div>
+          </div>
+          <div class="o3-stat-card">
+            <div class="o3-stat-num" style="color:#34d399">↑ Rising</div>
+            <div class="o3-stat-label">Trend</div>
+          </div>
+        </div>
+        <div class="o3-cards">
+          <div class="o3-card">
+            <div class="o3-card-title">Bamboo Cutting Board Set</div>
+            <div class="o3-card-row">
+              <span class="o3-card-price">$34.99</span>
+              <span class="o3-card-badge">Good Opp.</span>
+            </div>
+            <div class="o3-card-meta">⭐ 4.5 · 124 reviews · Low competition</div>
+          </div>
+          <div class="o3-card">
+            <div class="o3-card-title">Premium Bamboo Board XL</div>
+            <div class="o3-card-row">
+              <span class="o3-card-price">$28.99</span>
+              <span class="o3-card-badge" style="background:rgba(255,165,0,0.3);color:#ffa500">Moderate</span>
+            </div>
+            <div class="o3-card-meta">⭐ 4.3 · 312 reviews · Medium</div>
+          </div>
+        </div>
+        <div class="o3-bottom-nav">
+          <div class="o3-nav-item"><span class="o3-nav-icon">🔍</span><span class="o3-nav-label active">Research</span></div>
+          <div class="o3-nav-item"><span class="o3-nav-icon">🏭</span><span class="o3-nav-label">Suppliers</span></div>
+          <div class="o3-nav-item"><span class="o3-nav-icon">💰</span><span class="o3-nav-label">Calculate</span></div>
+          <div class="o3-nav-item"><span class="o3-nav-icon">✨</span><span class="o3-nav-label">Brand</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <strong>Bold Gradient — Consumer</strong>
+      Purple/pink gradient. Energetic, stands out in the App Store.
+    </div>
+    <button class="select-btn" style="background:linear-gradient(135deg,#a855f7,#ec4899);color:#fff" onclick="select('Bold Gradient — Consumer')">Select this style</button>
+  </div>
+
+  <!-- OPTION 4: MINIMAL -->
+  <div class="option o4">
+    <div class="phone">
+      <div class="phone-screen">
+        <div class="o4-header">
+          <div class="o4-eyebrow">FBA Pro</div>
+          <div class="o4-title">Research.<br>Source.<br>Launch.</div>
+          <div class="o4-search">
+            <span class="o4-search-icon">→</span>
+            <span class="o4-search-text">Search Amazon products…</span>
+          </div>
+        </div>
+        <div class="o4-section">
+          <span class="o4-section-title">RESULTS</span>
+          <span class="o4-section-link">see all</span>
+        </div>
+        <div class="o4-cards">
+          <div class="o4-card">
+            <div class="o4-card-title">Bamboo Cutting Board Set</div>
+            <div class="o4-card-row">
+              <span class="o4-card-price">$34.99</span>
+              <span class="o4-card-badge">GOOD</span>
+            </div>
+            <div class="o4-card-meta">4.5 stars · 124 reviews · Low competition</div>
+          </div>
+          <div class="o4-card">
+            <div class="o4-card-title">Premium Bamboo Board XL</div>
+            <div class="o4-card-row">
+              <span class="o4-card-price">$28.99</span>
+              <span class="o4-card-badge" style="background:#fff;color:#000;border:1.5px solid #000">MED</span>
+            </div>
+            <div class="o4-card-meta">4.3 stars · 312 reviews · Medium</div>
+          </div>
+          <div class="o4-card">
+            <div class="o4-card-title">Organic Bamboo Kitchen Board</div>
+            <div class="o4-card-row">
+              <span class="o4-card-price">$22.99</span>
+              <span class="o4-card-badge">SAT.</span>
+            </div>
+            <div class="o4-card-meta">4.7 stars · 2.1k reviews · High</div>
+          </div>
+        </div>
+        <div class="o4-bottom-nav">
+          <div class="o4-nav-item"><span class="o4-nav-icon">🔍</span><span class="o4-nav-label active">Research</span></div>
+          <div class="o4-nav-item"><span class="o4-nav-icon">🏭</span><span class="o4-nav-label">Suppliers</span></div>
+          <div class="o4-nav-item"><span class="o4-nav-icon">💰</span><span class="o4-nav-label">Calc</span></div>
+          <div class="o4-nav-item"><span class="o4-nav-icon">✨</span><span class="o4-nav-label">Brand</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">
+      <strong>Minimal — Ultra Clean</strong>
+      Black & white only. No color distractions. Very editorial feel.
+    </div>
+    <button class="select-btn" style="background:#fff;color:#000" onclick="select('Minimal — Ultra Clean')">Select this style</button>
+  </div>
+
+</div>
+
+<div class="selected-banner" id="banner"></div>
+
+<script>
+  function select(name) {
+    const banner = document.getElementById('banner');
+    banner.textContent = '✓ ' + name + ' selected — tell Claude to build it!';
+    banner.style.display = 'block';
+    setTimeout(() => banner.style.display = 'none', 4000);
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FBA Assistant</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo-dot"></div>
+  <div>
+    <h1>FBA Assistant</h1>
+    <div class="subtitle">Product Research · Supplier Sourcing · Brand Creation</div>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" data-panel="panel-research">🔍 Product Research</button>
+  <button class="tab" data-panel="panel-suppliers">🏭 Find Suppliers</button>
+  <button class="tab" data-panel="panel-calc">💰 FBA Calculator</button>
+  <button class="tab" data-panel="panel-brand">✨ Brand Creator</button>
+</div>
+
+<div class="main">
+
+  <!-- PANEL 1: PRODUCT RESEARCH -->
+  <div id="panel-research" class="panel active">
+    <div class="card">
+      <h2>Search Amazon for Product Ideas</h2>
+      <form id="research-form">
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <label>Product keyword or idea</label>
+            <input id="keyword" type="text" placeholder="e.g. bamboo cutting board, posture corrector" required>
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="category">
+              <option value="all">All Categories</option>
+              <option value="home">Home</option>
+              <option value="kitchen">Kitchen</option>
+              <option value="electronics">Electronics</option>
+              <option value="sports">Sports</option>
+              <option value="toys">Toys</option>
+              <option value="beauty">Beauty</option>
+              <option value="clothing">Clothing</option>
+              <option value="tools">Tools</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:0;align-self:flex-end">
+            <button id="research-btn" class="btn" type="submit">
+              <span id="research-spinner" class="spinner" style="display:none"></span>
+              Search
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div id="research-results">
+      <div class="empty-state">
+        <div class="icon">🔍</div>
+        <p>Enter a keyword to search Amazon and see competition, pricing, and trends.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 2: SUPPLIER SEARCH -->
+  <div id="panel-suppliers" class="panel">
+    <div class="card">
+      <h2>Find Chinese Suppliers on Alibaba</h2>
+      <form id="supplier-form">
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <label>Product to source</label>
+            <input id="supplier-product" type="text" placeholder="e.g. bamboo cutting board, silicone phone case" required>
+          </div>
+          <div class="form-group">
+            <label>Max unit price ($)</label>
+            <input id="max-price" type="number" placeholder="e.g. 5" min="0" step="0.01">
+          </div>
+          <div class="form-group" style="flex:0;align-self:flex-end">
+            <button id="supplier-btn" class="btn" type="submit">
+              <span id="supplier-spinner" class="spinner" style="display:none"></span>
+              Search
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div id="supplier-results">
+      <div class="empty-state">
+        <div class="icon">🏭</div>
+        <p>Enter a product name to find suppliers on Alibaba with pricing and MOQ.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 3: FBA CALCULATOR -->
+  <div id="panel-calc" class="panel">
+    <div class="card">
+      <h2>FBA Profit Calculator</h2>
+      <form id="calc-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Product name (optional)</label>
+            <input id="calc-product" type="text" placeholder="My Product">
+          </div>
+          <div class="form-group">
+            <label>Selling price on Amazon ($)</label>
+            <input id="selling-price" type="number" placeholder="29.99" step="0.01" min="0" required>
+          </div>
+          <div class="form-group">
+            <label>Supplier cost per unit ($)</label>
+            <input id="supplier-cost" type="number" placeholder="5.00" step="0.01" min="0" required>
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group">
+            <label>Product weight (lbs)</label>
+            <input id="weight" type="number" placeholder="0.5" step="0.01" min="0" required>
+          </div>
+          <div class="form-group">
+            <label>Length (inches)</label>
+            <input id="length" type="number" placeholder="10" step="0.1" min="0">
+          </div>
+          <div class="form-group">
+            <label>Width (inches)</label>
+            <input id="width" type="number" placeholder="6" step="0.1" min="0">
+          </div>
+          <div class="form-group">
+            <label>Height (inches)</label>
+            <input id="height" type="number" placeholder="2" step="0.1" min="0">
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="calc-category">
+              <option value="all">General (15%)</option>
+              <option value="electronics">Electronics (8%)</option>
+              <option value="clothing">Clothing (17%)</option>
+              <option value="home">Home (15%)</option>
+              <option value="kitchen">Kitchen (15%)</option>
+              <option value="sports">Sports (15%)</option>
+              <option value="toys">Toys (15%)</option>
+              <option value="beauty">Beauty (15%)</option>
+              <option value="tools">Tools (15%)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top:16px">
+          <button id="calc-btn" class="btn" type="submit">
+            <span id="calc-spinner" class="spinner" style="display:none"></span>
+            Calculate
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div id="calc-results">
+      <div class="empty-state">
+        <div class="icon">💰</div>
+        <p>Fill in the form above to calculate your FBA profit margin and fees.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 4: BRAND CREATOR -->
+  <div id="panel-brand" class="panel">
+    <div class="card">
+      <h2>Create Your Brand</h2>
+      <form id="brand-form">
+        <div class="form-row">
+          <div class="form-group" style="flex:3">
+            <label>Product type</label>
+            <input id="brand-product" type="text" placeholder="e.g. bamboo cutting board, yoga mat, dog leash" required>
+          </div>
+          <div class="form-group">
+            <label>Brand style</label>
+            <select id="brand-style">
+              <option value="modern">Modern</option>
+              <option value="premium">Premium</option>
+              <option value="playful">Playful</option>
+              <option value="minimal">Minimal</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:0;align-self:flex-end">
+            <button id="brand-btn" class="btn" type="submit">
+              <span id="brand-spinner" class="spinner" style="display:none"></span>
+              Generate
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div id="brand-results">
+      <div class="empty-state">
+        <div class="icon">✨</div>
+        <p>Fill in the form above to generate brand names, a logo, and full Amazon listing copy.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
