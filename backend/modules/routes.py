@@ -131,3 +131,36 @@ async def supplier_email(req: SupplierEmailRequest):
 @router.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@router.get("/debug/scrape")
+async def debug_scrape():
+    """Temporary: check what Google Shopping returns from Railway's IP."""
+    from playwright.async_api import async_playwright
+    result = {}
+    try:
+        async with async_playwright() as p:
+            browser = await p.firefox.launch(headless=True)
+            ctx = await browser.new_context(
+                user_agent="Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+                viewport={"width": 1280, "height": 768},
+            )
+            page = await ctx.new_page()
+            await page.route("**/*.{png,jpg,jpeg,gif,webp,ico,svg,woff,woff2,ttf,otf,eot}", lambda r: r.abort())
+            await page.goto("https://www.google.com/search?q=bamboo+cutting+board&tbm=shop&hl=en&gl=us", wait_until="domcontentloaded", timeout=25000)
+            await page.wait_for_timeout(2000)
+            html = await page.content()
+            await browser.close()
+            result = {
+                "length": len(html),
+                "has_captcha": "captcha" in html.lower() or "unusual traffic" in html.lower(),
+                "first_500": html[:500],
+                "selectors_found": {},
+            }
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "lxml")
+            for sel in [".sh-dgr__content", ".sh-pr__product-results-grid", ".KZmu8e", ".u30d4", "[data-sh-or]", ".mnr-c"]:
+                result["selectors_found"][sel] = len(soup.select(sel))
+    except Exception as e:
+        result = {"error": str(e)[:300]}
+    return result
