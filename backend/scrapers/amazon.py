@@ -5,22 +5,8 @@ from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from backend.scrapers.keywords import to_query_string
 
 _UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
 )
-
-_LAUNCH_ARGS = [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-blink-features=AutomationControlled",
-    "--disable-gpu",
-    "--disable-extensions",
-    "--disable-software-rasterizer",
-    "--blink-settings=imagesEnabled=false",
-    "--disable-remote-fonts",
-    "--js-flags=--max_old_space_size=256",
-]
 
 
 def _parse_price(text: str) -> Optional[float]:
@@ -66,19 +52,17 @@ async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, args=_LAUNCH_ARGS)
+            # Firefox uses significantly less memory than Chromium for headless scraping
+            browser = await p.firefox.launch(headless=True)
             context = await browser.new_context(
                 user_agent=_UA,
-                viewport={"width": 1366, "height": 768},
+                viewport={"width": 1280, "height": 768},
                 locale="en-US",
                 extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
             )
-            await context.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
 
             page = await context.new_page()
-            # Block images and fonts to cut memory usage on Railway
+            # Block images and fonts to cut memory usage
             await page.route(
                 "**/*.{png,jpg,jpeg,gif,webp,ico,svg,woff,woff2,ttf,otf,eot}",
                 lambda route: route.abort(),
