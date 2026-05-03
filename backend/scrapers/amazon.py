@@ -17,8 +17,9 @@ _LAUNCH_ARGS = [
     "--disable-gpu",
     "--disable-extensions",
     "--disable-software-rasterizer",
-    "--single-process",
-    "--no-zygote",
+    "--blink-settings=imagesEnabled=false",
+    "--disable-remote-fonts",
+    "--js-flags=--max_old_space_size=256",
 ]
 
 
@@ -77,6 +78,12 @@ async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
             )
 
             page = await context.new_page()
+            # Block images and fonts to cut memory usage on Railway
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,webp,ico,svg,woff,woff2,ttf,otf,eot}",
+                lambda route: route.abort(),
+            )
+
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
             try:

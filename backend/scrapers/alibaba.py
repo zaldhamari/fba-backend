@@ -17,8 +17,9 @@ _LAUNCH_ARGS = [
     "--disable-gpu",
     "--disable-extensions",
     "--disable-software-rasterizer",
-    "--single-process",
-    "--no-zygote",
+    "--blink-settings=imagesEnabled=false",
+    "--disable-remote-fonts",
+    "--js-flags=--max_old_space_size=256",
 ]
 
 
@@ -57,6 +58,11 @@ async def search_alibaba(product: str, max_price: Optional[float] = None) -> lis
             )
 
             page = await context.new_page()
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,webp,ico,svg,woff,woff2,ttf,otf,eot}",
+                lambda route: route.abort(),
+            )
+
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
             try:
