@@ -1,41 +1,29 @@
-import httpx
 import re
 from typing import Optional
-from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
 from backend.scrapers.keywords import to_query_string
 
-EBAY_CATEGORIES = {
-    "electronics": "58058",
-    "home": "11700",
-    "kitchen": "20625",
-    "sports": "888",
-    "toys": "220",
-    "beauty": "26395",
-    "clothing": "11450",
-    "tools": "20081",
-}
+_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-}
+_LAUNCH_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-software-rasterizer",
+    "--single-process",
+    "--no-zygote",
+]
 
 
 def _parse_price(text: str) -> Optional[float]:
     cleaned = text.replace("$", "").replace(",", "").strip()
-    # Handle price ranges like "12.99 to 24.99" — take the lower
     m = re.search(r"(\d+\.?\d*)", cleaned)
     if m:
         try:
@@ -67,51 +55,138 @@ def _opportunity(review_count: Optional[int], price: Optional[float]) -> str:
 
 async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
     """
-    Searches eBay (server-rendered, cloud-IP-friendly) to get product
-    market data — pricing, competition signals, and listing images.
+    Scrapes Google Shopping results (cloud-IP-friendly) to get product
+    market data: pricing, competition signals, and listing images.
     """
     query = to_query_string(keyword)
-    sacat = EBAY_CATEGORIES.get(category, "0")
-    url = f"https://www.ebay.com/sch/i.html?_nkw={query}&_sacat={sacat}&LH_BIN=1"
+    url = f"https://www.google.com/search?q={query}&tbm=shop&hl=en&gl=us"
 
     results = []
 
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=15.0,
-            headers=_HEADERS,
-        ) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return [{"error": f"Search returned status {resp.status_code}"}]
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=_LAUNCH_ARGS)
+            context = await browser.new_context(
+                user_agent=_UA,
+                viewport={"width": 1366, "height": 768},
+                locale="en-US",
+                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+            )
+            await context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
 
-            soup = BeautifulSoup(resp.text, "lxml")
-            items = soup.select("li.s-item")
+            page = await context.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-            for item in items[:15]:
-                title_el = item.select_one(".s-item__title")
-                price_el = item.select_one(".s-item__price")
-                img_el = item.select_one("img.s-item__image-img")
-                link_el = item.select_one("a.s-item__link")
-                reviews_el = item.select_one(".s-item__reviews-count")
-                rating_el = item.select_one(".s-item__reviews .s-item__seller-info-text, [class*='star']")
+            try:
+                await page.wait_for_selector(
+                    ".sh-dgr__content, .sh-pr__product-results-grid, [class*='sh-dlr']",
+                    timeout=10000,
+                )
+            except PWTimeout:
+                pass
 
-                title = title_el.get_text(strip=True) if title_el else ""
-                if not title or title.lower() == "shop on ebay":
+            await page.wait_for_timeout(1500)
+
+            content = await page.content()
+            if "captcha" in content.lower() or "unusual traffic" in content.lower():
+                await browser.close()
+                return [{"error": "Google requires CAPTCHA. Please try again in a minute."}]
+
+            items_data = await page.evaluate("""
+                () => {
+                    const cardSelectors = [
+                        '.sh-dgr__content',
+                        '.sh-pr__product-results-grid > div',
+                        '[class*="sh-dlr"] [class*="mnr-c"]',
+                        '[jsname][data-sh-or]',
+                        '.u30d4'
+                    ];
+
+                    let cards = [];
+                    for (const sel of cardSelectors) {
+                        const found = document.querySelectorAll(sel);
+                        if (found.length > 2) {
+                            cards = Array.from(found).slice(0, 15);
+                            break;
+                        }
+                    }
+
+                    return cards.map(card => {
+                        const titleSelectors = ['h3', 'h4', '[aria-label]', 'a[href]'];
+                        let title = '';
+                        for (const s of titleSelectors) {
+                            const el = card.querySelector(s);
+                            if (el) {
+                                title = el.getAttribute('aria-label') || el.innerText.trim();
+                                if (title && title.length > 5) break;
+                            }
+                        }
+
+                        const priceSelectors = ['[aria-label*="$"]', '[class*="price"]', '[class*="Price"]'];
+                        let price = '';
+                        for (const s of priceSelectors) {
+                            const el = card.querySelector(s);
+                            if (el) {
+                                price = el.getAttribute('aria-label') || el.innerText.trim();
+                                if (price && (price.includes('$') || price.match(/\d+\.\d+/))) break;
+                            }
+                        }
+                        if (!price) {
+                            const allText = card.innerText || '';
+                            const m = allText.match(/\$\s*(\d+\.?\d*)/);
+                            if (m) price = m[0];
+                        }
+
+                        const ratingSelectors = ['[aria-label*="stars"], [aria-label*="rating"], [class*="rating"], [class*="star"]'];
+                        let rating = '';
+                        for (const s of ratingSelectors) {
+                            const el = card.querySelector(s);
+                            if (el) {
+                                rating = el.getAttribute('aria-label') || el.innerText.trim();
+                                break;
+                            }
+                        }
+
+                        const img = card.querySelector('img');
+                        const image = img ? (img.getAttribute('src') || img.getAttribute('data-src') || '') : '';
+
+                        const link = card.querySelector('a[href]');
+                        const href = link ? link.getAttribute('href') : '';
+                        const url = href && href.startsWith('/url?')
+                            ? new URLSearchParams(href.slice(5)).get('q') || href
+                            : href;
+
+                        const merchantSelectors = ['[class*="merchant"], [class*="store"], [class*="shop"]'];
+                        let merchant = '';
+                        for (const s of merchantSelectors) {
+                            const el = card.querySelector(s);
+                            if (el && el.innerText.trim()) { merchant = el.innerText.trim(); break; }
+                        }
+
+                        return { title, price, rating, image, url, merchant };
+                    });
+                }
+            """)
+
+            await browser.close()
+
+            for item in items_data:
+                title = (item.get("title") or "").strip()
+                if not title or len(title) < 5:
                     continue
 
-                price_text = price_el.get_text(strip=True) if price_el else ""
-                price = _parse_price(price_text)
+                price = _parse_price(item.get("price") or "")
+                rating_text = item.get("rating") or ""
+                rating = _parse_price(rating_text)
+                if rating and rating > 5:
+                    rating = None
 
-                image = ""
-                if img_el:
-                    image = img_el.get("src") or img_el.get("data-src") or ""
-
-                href = link_el.get("href", "") if link_el else ""
-
-                review_text = reviews_el.get_text(strip=True) if reviews_el else ""
-                review_count = _parse_int(review_text) if review_text else None
+                review_count = None
+                rc_match = re.search(r"([\d,]+)\s*(?:reviews?|ratings?)", rating_text, re.I)
+                if rc_match:
+                    review_count = _parse_int(rc_match.group(1))
 
                 rc = review_count or 0
                 competition = "Low" if rc < 50 else "Medium" if rc < 500 else "High"
@@ -119,13 +194,13 @@ async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
                 results.append({
                     "title": title[:120],
                     "price": price,
-                    "rating": None,
+                    "rating": rating,
                     "review_count": review_count,
                     "asin": "",
-                    "image": image,
+                    "image": item.get("image") or "",
                     "competition": competition,
                     "opportunity": _opportunity(review_count, price),
-                    "url": href,
+                    "url": item.get("url") or "",
                 })
 
     except Exception as e:
