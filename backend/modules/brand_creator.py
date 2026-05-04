@@ -228,15 +228,19 @@ def _generate_listing_copy(product_type: str, brand_name: str, keywords: list[st
     }
 
 
-def generate_brand(product_type: str, keywords: list[str], style: str = "modern") -> dict:
+def generate_brand(product_type: str, keywords: list[str], style: str = "modern", brand_name: str = "") -> dict:
     style = style if style in PREFIXES else "modern"
 
     # Always auto-generate keywords; merge with any user-supplied ones
     auto_keywords = generate_keywords(product_type)
     merged_keywords = list(dict.fromkeys(keywords + auto_keywords))  # user first, then auto, deduped
 
-    name_options = _generate_names(product_type, merged_keywords, style, count=5)
-    primary_name = name_options[0]
+    if brand_name.strip():
+        primary_name = brand_name.strip()
+        name_options = [primary_name]
+    else:
+        name_options = _generate_names(product_type, merged_keywords, style, count=5)
+        primary_name = name_options[0]
 
     tagline = random.choice(TAGLINES[style])
     logo_svg = _generate_logo_svg(primary_name, style)

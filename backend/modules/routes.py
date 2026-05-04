@@ -32,12 +32,14 @@ class FBACalcRequest(BaseModel):
     weight_lbs: float
     dimensions: dict
     category: str
+    quantity: Optional[int] = 1
 
 
 class BrandRequest(BaseModel):
     product_type: str
     keywords: list[str] = []
     style: Optional[str] = "modern"
+    brand_name: Optional[str] = ""
 
 
 class KeywordRequest(BaseModel):
@@ -99,7 +101,7 @@ async def opportunity_score(req: OpportunityRequest):
 
 @router.post("/brand/create")
 async def brand_create(req: BrandRequest):
-    brand = generate_brand(req.product_type, req.keywords, req.style)
+    brand = generate_brand(req.product_type, req.keywords, req.style, req.brand_name or "")
     return brand
 
 
