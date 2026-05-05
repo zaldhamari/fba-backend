@@ -231,9 +231,8 @@ def _generate_listing_copy(product_type: str, brand_name: str, keywords: list[st
 def generate_brand(product_type: str, keywords: list[str], style: str = "modern", brand_name: str = "") -> dict:
     style = style if style in PREFIXES else "modern"
 
-    # Always auto-generate keywords; merge with any user-supplied ones
     auto_keywords = generate_keywords(product_type)
-    merged_keywords = list(dict.fromkeys(keywords + auto_keywords))  # user first, then auto, deduped
+    merged_keywords = list(dict.fromkeys(keywords + auto_keywords))
 
     if brand_name.strip():
         primary_name = brand_name.strip()
@@ -244,7 +243,16 @@ def generate_brand(product_type: str, keywords: list[str], style: str = "modern"
 
     tagline = random.choice(TAGLINES[style])
     logo_svg = _generate_logo_svg(primary_name, style)
-    listing = _generate_listing_copy(product_type, primary_name, merged_keywords)
+
+    # Use AI for listing copy when available
+    try:
+        from backend.modules.ai_client import AI_AVAILABLE, chat_json
+        if AI_AVAILABLE:
+            listing = _ai_listing_copy(product_type, primary_name, merged_keywords, style)
+        else:
+            listing = _generate_listing_copy(product_type, primary_name, merged_keywords)
+    except Exception:
+        listing = _generate_listing_copy(product_type, primary_name, merged_keywords)
 
     return {
         "brand_name": primary_name,
@@ -255,3 +263,38 @@ def generate_brand(product_type: str, keywords: list[str], style: str = "modern"
         "listing": listing,
         "generated_keywords": merged_keywords,
     }
+
+
+def _ai_listing_copy(product_type: str, brand_name: str, keywords: list[str], style: str) -> dict:
+    from backend.modules.ai_client import chat_json
+    kw_str = ", ".join(keywords[:10])
+    system = (
+        "You are an expert Amazon copywriter. Write high-converting, SEO-optimised listing copy. "
+        "Follow Amazon's style guidelines. Be specific and benefit-focused, not generic."
+    )
+    user = f"""Product: {product_type}
+Brand: {brand_name}
+Style: {style}
+Top keywords: {kw_str}
+
+Return JSON:
+{{
+  "title": "full Amazon title (150-200 chars, keyword-rich)",
+  "bullet_points": [
+    "BENEFIT — detail (max 200 chars)",
+    "BENEFIT — detail",
+    "BENEFIT — detail",
+    "BENEFIT — detail",
+    "BENEFIT — detail"
+  ],
+  "description": "2-3 paragraph A+ description (300-500 chars)",
+  "backend_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5", "keyword6", "keyword7", "keyword8"]
+}}"""
+
+    result = chat_json(system, user, max_tokens=700)
+    # Enforce field shapes
+    result["title"] = str(result.get("title", ""))[:200]
+    result["bullet_points"] = list(result.get("bullet_points", []))[:5]
+    result["description"] = str(result.get("description", ""))
+    result["backend_keywords"] = list(result.get("backend_keywords", []))[:10]
+    return result
