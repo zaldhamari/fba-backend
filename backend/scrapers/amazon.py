@@ -9,6 +9,7 @@ This produces "keyword opportunities" (which IS how Helium 10 / Jungle
 Scout work) rather than scraping individual product listings.
 """
 import asyncio
+import hashlib
 import re
 from typing import Optional
 import httpx
@@ -64,6 +65,11 @@ def _estimate_price(keyword: str) -> Optional[float]:
 def _competition_from_words(kw: str) -> str:
     words = len(kw.split())
     return "Low" if words >= 4 else "Medium" if words >= 3 else "High"
+
+
+def _stable_id(keyword: str) -> str:
+    """Stable synthetic ID from keyword — keeps FlatList keys unique across re-renders."""
+    return "KW" + hashlib.md5(keyword.lower().strip().encode()).hexdigest()[:8].upper()
 
 
 def _opportunity(competition: str, price: Optional[float]) -> str:
@@ -137,7 +143,7 @@ async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
             "price": price,
             "rating": None,
             "review_count": None,
-            "asin": "",
+            "asin": _stable_id(kw),
             "image": "",
             "competition": comp,
             "opportunity": _opportunity(comp, price),
