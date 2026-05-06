@@ -16,6 +16,7 @@ from backend.modules.review_analyzer import analyze_reviews
 from backend.modules.profit_simulator import simulate
 from backend.modules.supplier_scorer import score_supplier
 from backend.modules.differentiation import generate_differentiation
+from backend.modules.analyze_product import analyze_product_quick
 
 router = APIRouter()
 
@@ -256,3 +257,20 @@ async def supplier_score(req: SupplierScoreRequest):
     )
 
 
+# ─── Analyze Product (Killer Feature) ────────────────────────────────────────
+
+class AnalyzeProductRequest(BaseModel):
+    price: float
+    reviews: int
+    competition: str
+    trend: str
+
+
+@router.post("/ai/analyze-product")
+async def analyze_product_endpoint(req: AnalyzeProductRequest):
+    return analyze_product_quick(
+        price=req.price,
+        reviews=req.reviews,
+        competition=req.competition,
+        trend=req.trend,
+    )
