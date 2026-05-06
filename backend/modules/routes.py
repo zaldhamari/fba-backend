@@ -264,13 +264,20 @@ class AnalyzeProductRequest(BaseModel):
     reviews: int
     competition: str
     trend: str
+    currency: Optional[str] = "USD"
+    marketplace: Optional[str] = "US"
 
 
 @router.post("/ai/analyze-product")
 async def analyze_product_endpoint(req: AnalyzeProductRequest):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"analyze-product: marketplace={req.marketplace}, currency={req.currency}, price={req.price}, reviews={req.reviews}")
     return analyze_product_quick(
         price=req.price,
         reviews=req.reviews,
         competition=req.competition,
         trend=req.trend,
+        currency=req.currency or "USD",
+        marketplace=req.marketplace or "US",
     )

@@ -1,13 +1,30 @@
 from backend.modules.ai_client import chat_json, AI_AVAILABLE
 
+MARKETPLACE_NAMES = {
+    "US": "Amazon US",
+    "CA": "Amazon Canada",
+    "UK": "Amazon UK",
+    "DE": "Amazon Germany",
+    "AE": "Amazon UAE",
+    "SA": "Amazon Saudi Arabia",
+}
 
-def analyze_product_quick(price: float, reviews: int, competition: str, trend: str) -> dict:
+
+def analyze_product_quick(
+    price: float,
+    reviews: int,
+    competition: str,
+    trend: str,
+    currency: str = "USD",
+    marketplace: str = "US",
+) -> dict:
     cost = price / 3.5
     margin = round(((price - cost) / price) * 100, 1)
+    marketplace_label = MARKETPLACE_NAMES.get(marketplace.upper(), "Amazon US")
 
     result = None
     if AI_AVAILABLE:
-        result = _ai_analyze(price, reviews, competition, trend, margin)
+        result = _ai_analyze(price, reviews, competition, trend, margin, currency, marketplace_label)
 
     if not result:
         result = _fallback(price, reviews, competition, trend, margin)
@@ -22,16 +39,20 @@ def analyze_product_quick(price: float, reviews: int, competition: str, trend: s
     return result
 
 
-def _ai_analyze(price, reviews, competition, trend, margin):
+def _ai_analyze(price, reviews, competition, trend, margin, currency, marketplace_label):
     system = "You are a senior Amazon FBA analyst. Be direct, specific, and actionable. No fluff."
     user = f"""Analyze this FBA product opportunity. Respond with JSON only — no markdown fences.
 
+Marketplace: {marketplace_label} | Currency: {currency}
+
 Data:
-- Price: ${price}
+- Price: ${price} USD
 - Reviews: {reviews}
 - Competition: {competition}
 - Trend: {trend}
 - Estimated margin: {margin}%
+
+Tailor your verdict and next steps for the {marketplace_label} marketplace. Consider local competition dynamics, fees, and buyer behaviour where relevant.
 
 Return exactly:
 {{
