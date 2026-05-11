@@ -2,6 +2,7 @@
 FBA Fee calculator based on Amazon's published fee structure (2024).
 https://sell.amazon.com/fulfillment-by-amazon/fba-fees
 """
+import math
 
 REFERRAL_FEES = {
     "electronics": 0.08,
@@ -72,12 +73,69 @@ def _get_fulfillment_fee(size_tier: str, billable_weight: float) -> float:
         return 137.32 + max(0, (billable_weight - 90)) * 0.83
 
 
+# Estimated cubic inches per pound when packaged (bulkiness by category)
+_DENSITY: dict[str, float] = {
+    "clothing": 160, "sports": 130, "toys": 140, "home": 120,
+    "kitchen": 100, "beauty": 100, "electronics": 60, "tools": 70,
+    "books": 50, "all": 110,
+}
+
+# Standard FBA cartons: (L, W, H) in inches — smallest to largest
+_CARTONS = [
+    (12, 10, 8), (16, 12, 10), (18, 14, 12),
+    (20, 16, 12), (20, 20, 16), (24, 18, 14),
+    (25, 25, 20), (25, 25, 25),  # Amazon max
+]
+_MAX_CARTON_WEIGHT = 50.0   # lbs
+_PACK_EFF = 0.68            # 68% usable volume (packing material / gaps)
+
+
+def calculate_shipment(
+    weight_lbs: float,
+    dimensions: dict,
+    quantity: int,
+    category: str = "all",
+) -> dict:
+    quantity = max(1, quantity)
+
+    l, w, h = dimensions.get("length", 0), dimensions.get("width", 0), dimensions.get("height", 0)
+    vol_per_item = (l * w * h) if (l > 0 and w > 0 and h > 0) else (
+        weight_lbs * _DENSITY.get(category, 110)
+    )
+    vol_per_item = max(vol_per_item, 1.0)
+
+    max_by_weight = max(1, int(_MAX_CARTON_WEIGHT / weight_lbs))
+
+    # Pick the smallest carton that fits ≥ 4 items
+    chosen = _CARTONS[-1]
+    units_per = max(1, max_by_weight)
+    for cl, cw, ch in _CARTONS:
+        usable = cl * cw * ch * _PACK_EFF
+        by_vol = max(1, int(usable / vol_per_item))
+        upc = min(max_by_weight, by_vol)
+        if upc >= 4:
+            chosen = (cl, cw, ch)
+            units_per = upc
+            break
+
+    carton_count = math.ceil(quantity / units_per)
+    return {
+        "quantity": quantity,
+        "total_weight_lbs": round(weight_lbs * quantity, 1),
+        "carton_count": carton_count,
+        "carton_dims": {"length": chosen[0], "width": chosen[1], "height": chosen[2]},
+        "units_per_carton": units_per,
+        "carton_weight_lbs": round(weight_lbs * units_per, 1),
+    }
+
+
 def calculate_fba_fees(
     selling_price: float,
     supplier_cost: float,
     weight_lbs: float,
     dimensions: dict,
     category: str = "all",
+    quantity: int = 1,
 ) -> dict:
     referral_rate = REFERRAL_FEES.get(category, 0.15)
     referral_fee = round(selling_price * referral_rate, 2)
@@ -96,6 +154,9 @@ def calculate_fba_fees(
     profit = selling_price - supplier_cost - total_fees
     margin_pct = round((profit / selling_price) * 100, 1) if selling_price > 0 else 0
     roi = round((profit / supplier_cost) * 100, 1) if supplier_cost > 0 else 0
+
+    qty = max(1, quantity)
+    shipment = calculate_shipment(weight_lbs, dimensions, qty, category)
 
     return {
         "selling_price": selling_price,
@@ -118,4 +179,10 @@ def calculate_fba_fees(
             "Marginal" if margin_pct >= 15 else
             "Not viable"
         ),
+        "shipment": {
+            **shipment,
+            "total_inventory_cost": round(supplier_cost * qty, 2),
+            "total_revenue": round(selling_price * qty, 2),
+            "total_profit": round(profit * qty, 2),
+        },
     }

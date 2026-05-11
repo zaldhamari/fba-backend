@@ -88,6 +88,7 @@ async def fba_calculate(req: FBACalcRequest):
         weight_lbs=req.weight_lbs,
         dimensions=req.dimensions,
         category=req.category,
+        quantity=req.quantity or 1,
     )
     return result
 
