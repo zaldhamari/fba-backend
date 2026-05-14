@@ -18,6 +18,7 @@ from backend.modules.profit_simulator import simulate
 from backend.modules.supplier_scorer import score_supplier
 from backend.modules.differentiation import generate_differentiation
 from backend.modules.analyze_product import analyze_product_quick
+from backend.modules.feasibility_report import generate_feasibility_report
 
 router = APIRouter()
 
@@ -289,6 +290,35 @@ class AnalyzeProductRequest(BaseModel):
     trend: str
     currency: Optional[str] = "USD"
     marketplace: Optional[str] = "US"
+
+
+# ─── Feasibility Report ──────────────────────────────────────────────────────
+
+class FeasibilityReportRequest(BaseModel):
+    product_name: str
+    amazon_price: Optional[float] = None
+    supplier_analysis: Optional[Dict[str, Any]] = None
+    calculation: Optional[Dict[str, Any]] = None
+    brand: Optional[Dict[str, Any]] = None
+    keywords: Optional[Dict[str, Any]] = None
+    freight: Optional[Dict[str, Any]] = None
+    marketplace: Optional[str] = "US"
+    currency: Optional[str] = "USD"
+
+
+@router.post("/ai/feasibility-report")
+async def feasibility_report(req: FeasibilityReportRequest):
+    return generate_feasibility_report(
+        product_name=req.product_name,
+        amazon_price=req.amazon_price,
+        supplier_analysis=req.supplier_analysis,
+        calculation=req.calculation,
+        brand=req.brand,
+        keywords=req.keywords,
+        freight=req.freight,
+        marketplace=req.marketplace or "US",
+        currency=req.currency or "USD",
+    )
 
 
 @router.post("/ai/analyze-product")
