@@ -38,35 +38,45 @@ DEFAULT_PAIN_POINTS = {
 
 
 def analyze_reviews(product_name: str, category: str, sample_reviews: list[str] = None) -> dict:
-    if AI_AVAILABLE and sample_reviews:
-        return _ai_analyze(product_name, category, sample_reviews)
+    if AI_AVAILABLE:
+        return _ai_analyze(product_name, category, sample_reviews or [])
     return _knowledge_base_analyze(product_name, category)
 
 
 def _ai_analyze(product_name: str, category: str, sample_reviews: list[str]) -> dict:
     from backend.modules.ai_client import chat_json
     system = (
-        "You are an Amazon product analyst. Extract actionable insights from customer reviews. "
-        "Focus on patterns, not individual complaints."
+        "You are an expert Amazon FBA product analyst helping sellers find improvement opportunities. "
+        "You have deep knowledge of Amazon product categories, common customer complaints, and what drives 1-3 star reviews. "
+        "Be specific to the exact product — never give generic category-level answers."
     )
-    reviews_text = "\n".join(f"- {r}" for r in sample_reviews[:20])
-    user = f"""Product: {product_name} (Category: {category})
 
-Customer reviews:
-{reviews_text}
+    if sample_reviews:
+        reviews_text = "\n".join(f"- {r}" for r in sample_reviews[:20])
+        review_section = f"Customer reviews:\n{reviews_text}"
+    else:
+        review_section = (
+            "No sample reviews provided. Use your knowledge of this specific product's Amazon listing history, "
+            "typical customer complaints for this exact item, and common failure points reported across the internet."
+        )
 
-Return JSON:
+    user = f"""Product: {product_name}
+Category: {category}
+
+{review_section}
+
+Analyze this specific product and return JSON with product-specific insights (not generic category advice):
 {{
-  "top_complaints": ["complaint 1", "complaint 2", "complaint 3", "complaint 4"],
-  "opportunities": ["specific fix or differentiation 1", "fix 2", "fix 3", "fix 4"],
-  "sentiment_score": 0-100,
-  "most_praised": ["what customers love 1", "love 2"],
-  "recommended_improvements": ["concrete product change 1", "change 2", "change 3"],
-  "bundling_ideas": ["bundle idea 1", "bundle idea 2"]
+  "top_complaints": ["specific complaint about THIS product 1", "complaint 2", "complaint 3", "complaint 4"],
+  "opportunities": ["specific gap you can exploit for THIS product 1", "gap 2", "gap 3", "gap 4"],
+  "sentiment_score": <integer 0-100 reflecting real customer satisfaction for this product>,
+  "most_praised": ["what customers specifically love about THIS product 1", "love 2", "love 3"],
+  "recommended_improvements": ["concrete change to beat THIS product 1", "change 2", "change 3"],
+  "bundling_ideas": ["bundle idea specific to THIS product 1", "bundle idea 2"]
 }}"""
 
     try:
-        result = chat_json(system, user, max_tokens=500)
+        result = chat_json(system, user, max_tokens=600)
         result["source"] = "ai"
         return result
     except Exception:
