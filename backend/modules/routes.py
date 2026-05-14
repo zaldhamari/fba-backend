@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from backend.scrapers.amazon import search_amazon
+from backend.scrapers.asin_lookup import lookup_asin, extract_asin
 from backend.scrapers.alibaba import search_alibaba
 from backend.scrapers.trends import get_trends
 from backend.scrapers.keywords_scraper import research_keywords
@@ -143,6 +144,21 @@ async def health():
     return {"status": "ok", "ai_enabled": AI_AVAILABLE}
 
 
+# ─── ASIN / Product URL Lookup ────────────────────────────────────────────────
+
+class ProductLookupRequest(BaseModel):
+    input: str  # bare ASIN or full Amazon URL
+
+
+@router.post("/research/product")
+async def product_lookup(req: ProductLookupRequest):
+    asin = extract_asin(req.input)
+    if not asin:
+        return {"error": "Could not find a valid ASIN in the input.", "title": None, "category": None}
+    result = await lookup_asin(asin)
+    return result
+
+
 # ─── AI Copilot ──────────────────────────────────────────────────────────────
 
 class CopilotRequest(BaseModel):
@@ -155,6 +171,9 @@ class CopilotRequest(BaseModel):
     category: Optional[str] = "all"
     competition: Optional[str] = "Medium"
     monthly_sales_est: Optional[int] = 150
+    marketplace: Optional[str] = "US"
+    currency: Optional[str] = "USD"
+    financial_context: Optional[Dict[str, Any]] = None
 
 
 @router.post("/ai/copilot")
@@ -169,6 +188,9 @@ async def ai_copilot(req: CopilotRequest):
         category=req.category or "all",
         competition=req.competition or "Medium",
         monthly_sales_est=req.monthly_sales_est or 150,
+        marketplace=req.marketplace or "US",
+        currency=req.currency or "USD",
+        financial_context=req.financial_context,
     )
 
 
