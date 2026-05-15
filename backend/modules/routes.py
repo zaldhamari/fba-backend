@@ -5,6 +5,8 @@ from typing import Optional, List, Dict, Any
 from backend.scrapers.amazon import search_amazon
 from backend.scrapers.asin_lookup import lookup_asin, extract_asin
 from backend.scrapers.alibaba import search_alibaba
+from backend.scrapers.dataforseo import search_amazon_products
+from backend.scrapers.alibaba_api import search_suppliers
 from backend.scrapers.trends import get_trends
 from backend.scrapers.keywords_scraper import research_keywords
 from backend.modules.fba_calculator import calculate_fba_fees
@@ -19,6 +21,8 @@ from backend.modules.supplier_scorer import score_supplier
 from backend.modules.differentiation import generate_differentiation
 from backend.modules.analyze_product import analyze_product_quick
 from backend.modules.feasibility_report import generate_feasibility_report
+from backend.modules.niche_analyzer import analyze_niche
+from backend.modules.freight_estimator import estimate_freight
 
 router = APIRouter()
 
@@ -333,4 +337,105 @@ async def analyze_product_endpoint(req: AnalyzeProductRequest):
         trend=req.trend,
         currency=req.currency or "USD",
         marketplace=req.marketplace or "US",
+    )
+
+
+# ─── AI Ask (generic copilot Q&A) ────────────────────────────────────────────
+
+class AskRequest(BaseModel):
+    question: str
+    context:  Optional[Dict[str, Any]] = None
+
+
+@router.post("/ai/ask")
+async def ai_ask(req: AskRequest):
+    from backend.modules.ai_client import chat, AI_AVAILABLE
+    if not AI_AVAILABLE:
+        return {"answer": "AI is not configured on this server.", "available": False}
+
+    context_str = ""
+    if req.context:
+        context_str = "\n\nContext:\n" + "\n".join(f"- {k}: {v}" for k, v in req.context.items())
+
+    try:
+        answer = chat(
+            system="You are Siftly's AI co-pilot for Amazon FBA sellers. Answer concisely and practically. If you're unsure, say so.",
+            user=req.question + context_str,
+            max_tokens=600,
+        )
+        return {"answer": answer, "available": True}
+    except Exception as e:
+        return {"answer": f"Error: {str(e)}", "available": False}
+
+
+# ─── Niche Intelligence Report ────────────────────────────────────────────────
+
+class NicheResearchRequest(BaseModel):
+    keyword:                str
+    marketplace:            Optional[str]  = "US"
+    price_min:              Optional[float] = 15.0
+    price_max:              Optional[float] = 60.0
+    max_top_seller_reviews: Optional[int]   = 300
+    budget:                 Optional[int]   = 1000
+
+
+@router.post("/research/niche")
+async def niche_research(req: NicheResearchRequest):
+    marketplace = req.marketplace or "US"
+    products    = await search_amazon_products(req.keyword, marketplace, max_results=20)
+    report      = analyze_niche(
+        keyword=req.keyword,
+        products=products,
+        budget=req.budget or 1000,
+        price_min=req.price_min or 15.0,
+        price_max=req.price_max or 60.0,
+        max_top_seller_reviews=req.max_top_seller_reviews or 300,
+        marketplace=marketplace,
+    )
+    return report
+
+
+# ─── Suppliers v2 (real Alibaba API) ─────────────────────────────────────────
+
+class SuppliersV2Request(BaseModel):
+    product:        str
+    marketplace:    Optional[str]   = "US"
+    max_unit_price: Optional[float] = None
+    max_moq:        Optional[int]   = None
+
+
+@router.post("/research/suppliers-v2")
+async def suppliers_v2(req: SuppliersV2Request):
+    suppliers = await search_suppliers(
+        product=req.product,
+        marketplace=req.marketplace or "US",
+        max_unit_price=req.max_unit_price,
+        max_moq=req.max_moq,
+        max_results=10,
+    )
+    return {"suppliers": suppliers, "product": req.product}
+
+
+# ─── Freight Estimates ────────────────────────────────────────────────────────
+
+class FreightRequest(BaseModel):
+    product_name:       str
+    marketplace:        Optional[str]   = "US"
+    units:              Optional[int]   = 200
+    weight_kg_per_unit: Optional[float] = 0.5
+    length_cm:          Optional[float] = 20.0
+    width_cm:           Optional[float] = 15.0
+    height_cm:          Optional[float] = 10.0
+
+
+@router.post("/research/freight")
+async def freight_estimate(req: FreightRequest):
+    return estimate_freight(
+        product_name=req.product_name,
+        marketplace=req.marketplace or "US",
+        units=req.units or 200,
+        weight_kg_per_unit=req.weight_kg_per_unit or 0.5,
+        length_cm=req.length_cm or 20.0,
+        width_cm=req.width_cm or 15.0,
+        height_cm=req.height_cm or 10.0,
     )
