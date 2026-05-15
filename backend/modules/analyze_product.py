@@ -4,7 +4,7 @@ MARKETPLACE_NAMES = {
     "US": "Amazon US",
     "CA": "Amazon Canada",
     "UK": "Amazon UK",
-    "DE": "Amazon Germany",
+    "DE": "Amazon EU",
     "AE": "Amazon UAE",
     "SA": "Amazon Saudi Arabia",
 }
