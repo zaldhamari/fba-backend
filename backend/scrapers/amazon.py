@@ -1,12 +1,17 @@
 """
-Product research using Amazon's autocomplete API + Google Trends.
+Product research using Amazon's autocomplete API + Google Trends, with a
+real-data path via DataForSEO when credentials are configured.
 
 All major e-commerce sites (Amazon, eBay, Google Shopping, Alibaba) block
 datacenter IPs from Railway. Amazon's autocomplete API is NOT blocked and
-returns real search demand data — exactly what FBA sellers need.
+returns real search demand data â exactly what FBA sellers need.
 
-This produces "keyword opportunities" (which IS how Helium 10 / Jungle
-Scout work) rather than scraping individual product listings.
+When DATAFORSEO_LOGIN/DATAFORSEO_PASSWORD are configured (see dataforseo.py),
+search_amazon() delegates to real DataForSEO product listings instead of the
+keyword-derived price/competition guesses below. Every result is tagged with
+a "source" field ("dataforseo" = real, "keyword_estimate" = guessed price
+from a hardcoded category table) so the frontend can show this honestly
+instead of presenting guessed prices as real listings.
 """
 import asyncio
 import hashlib
@@ -15,6 +20,7 @@ from typing import Optional
 import httpx
 
 from backend.scrapers.keywords import to_query_string, to_keywords
+from backend.scrapers import dataforseo
 
 AMAZON_SUGGEST = "https://completion.amazon.com/api/2017/suggestions"
 
@@ -68,7 +74,7 @@ def _competition_from_words(kw: str) -> str:
 
 
 def _stable_id(keyword: str) -> str:
-    """Stable synthetic ID from keyword — keeps FlatList keys unique across re-renders."""
+    """Stable synthetic ID from keyword â keeps FlatList keys unique across re-renders."""
     return "KW" + hashlib.md5(keyword.lower().strip().encode()).hexdigest()[:8].upper()
 
 
@@ -108,9 +114,23 @@ async def _fetch_suggestions(prefix: str, client: httpx.AsyncClient) -> list[str
 
 async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
     """
-    Returns keyword-based product opportunities from Amazon's live search data.
-    Each result represents a real search demand niche with competition + pricing.
+    Returns Amazon product results.
+
+    Uses real DataForSEO listing data when DATAFORSEO_LOGIN/PASSWORD are
+    configured. Otherwise falls back to keyword-autocomplete-derived
+    opportunities â real search-demand signal, but price/competition per
+    result is an estimate from a hardcoded category table, not the actual
+    product. Every result carries a "source" field so callers can tell
+    which path produced it.
     """
+    if dataforseo._is_configured():
+        try:
+            real = await dataforseo.search_amazon_products(keyword, marketplace="US", max_results=15)
+            if real:
+                return real
+        except Exception:
+            pass  # fall through to the estimate-based path below
+
     base = " ".join(to_keywords(keyword)[:3])
     alphabet = "abcdefghijklmnopqrstuvwxyz"
     queries = [base] + [f"{base} {c}" for c in alphabet[:12]]
@@ -148,6 +168,7 @@ async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
             "competition": comp,
             "opportunity": _opportunity(comp, price),
             "url": f"https://www.amazon.com/s?k={kw.replace(' ', '+')}",
+            "source": "keyword_estimate",
         })
 
     return products
