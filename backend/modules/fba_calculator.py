@@ -187,11 +187,11 @@ def calculate_shipment(
     )
     vol_per_item = max(vol_per_item, 1.0)
 
-    maax_by_weight = max(1, int(_MAX_CARTON_WEIGHT / weight_lbs))
+    max_by_weight = max(1, int(_MAX_CARTON_WEIGHT / weight_lbs))
 
     # Pick the smallest carton that fits ≥ 4 items
     chosen = _CARTONS[-1]
-    units_per = max(1, maax_by_weight)
+    units_per = max(1, max_by_weight)
     for cl, cw, ch in _CARTONS:
         usable = cl * cw * ch * _PACK_EFF
         by_vol = max(1, int(usable / vol_per_item))
