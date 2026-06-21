@@ -4,7 +4,7 @@ real-data path via DataForSEO when credentials are configured.
 
 All major e-commerce sites (Amazon, eBay, Google Shopping, Alibaba) block
 datacenter IPs from Railway. Amazon's autocomplete API is NOT blocked and
-returns real search demand data â exactly what FBA sellers need.
+returns real search demand data — exactly what FBA sellers need.
 
 When DATAFORSEO_LOGIN/DATAFORSEO_PASSWORD are configured (see dataforseo.py),
 search_amazon() delegates to real DataForSEO product listings instead of the
@@ -74,7 +74,7 @@ def _competition_from_words(kw: str) -> str:
 
 
 def _stable_id(keyword: str) -> str:
-    """Stable synthetic ID from keyword â keeps FlatList keys unique across re-renders."""
+    """Stable synthetic ID from keyword — keeps FlatList keys unique across re-renders."""
     return "KW" + hashlib.md5(keyword.lower().strip().encode()).hexdigest()[:8].upper()
 
 
@@ -118,7 +118,7 @@ async def search_amazon(keyword: str, category: str = "all") -> list[dict]:
 
     Uses real DataForSEO listing data when DATAFORSEO_LOGIN/PASSWORD are
     configured. Otherwise falls back to keyword-autocomplete-derived
-    opportunities â real search-demand signal, but price/competition per
+    opportunities — real search-demand signal, but price/competition per
     result is an estimate from a hardcoded category table, not the actual
     product. Every result carries a "source" field so callers can tell
     which path produced it.
