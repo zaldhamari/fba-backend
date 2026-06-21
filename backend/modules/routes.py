@@ -23,6 +23,7 @@ from backend.modules.analyze_product import analyze_product_quick
 from backend.modules.feasibility_report import generate_feasibility_report
 from backend.modules.niche_analyzer import analyze_niche
 from backend.modules.freight_estimator import estimate_freight
+from backend.modules.product_physical import estimate_physical_attributes
 
 router = APIRouter()
 
@@ -438,4 +439,21 @@ async def freight_estimate(req: FreightRequest):
         length_cm=req.length_cm or 20.0,
         width_cm=req.width_cm or 15.0,
         height_cm=req.height_cm or 10.0,
+    )
+
+
+# ─── Physical Attribute Estimator (weight/dims/category pre-fill) ────────────
+
+class PhysicalEstimateRequest(BaseModel):
+    title:    str
+    price:    Optional[float] = None
+    category: Optional[str]   = None
+
+
+@router.post("/ai/estimate-physical")
+async def estimate_physical(req: PhysicalEstimateRequest):
+    return estimate_physical_attributes(
+        title=req.title,
+        price=req.price,
+        category=req.category,
     )
