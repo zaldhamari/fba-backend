@@ -2,7 +2,7 @@
 Niche Intelligence engine — turns raw Amazon SERP data into a structured verdict.
 
 Produces the NicheReport shape consumed by the frontend NicheReport component:
-  verdict | market_snapshot | the_gap | products_to_model | can_you_afford_it
+  verdict | market_snapshot | the_gap | products_to_model | can_you_afford_it | data_source
 """
 from typing import Optional
 
@@ -18,12 +18,17 @@ def analyze_niche(
 ) -> dict:
     """
     Derives a niche intelligence report from a list of Amazon product results.
-    All inputs are real (from DataForSEO) or stub — logic is the same either way.
+
+    `data_source` reflects whatever the input products actually are: "dataforseo"
+    when real listing data was used, "stub" when DataForSEO isn't configured and
+    every number below is fabricated placeholder data. The frontend uses this to
+    decide whether to show the report as confirmed or estimated.
     """
     if not products:
         return _empty_report(keyword)
 
-    # ── Market snapshot metrics ───────────────────────────────────────────────
+    data_source = products[0].get("source", "stub")
+
     prices    = [p["price"] for p in products if p.get("price")]
     reviews   = [p["review_count"] for p in products if p.get("review_count") is not None]
     ratings   = [p["rating"]       for p in products if p.get("rating") is not None]
@@ -40,22 +45,18 @@ def analyze_niche(
     ]
     low_comp = [p for p in products if p.get("review_count", 999) < max_top_seller_reviews]
 
-    # ── Verdict ───────────────────────────────────────────────────────────────
     verdict = _derive_verdict(
         avg_price, avg_reviews, top_reviews, max_top_seller_reviews,
         price_min, price_max, budget,
     )
 
-    # ── The Gap — weaknesses to exploit ──────────────────────────────────────
     gap = _derive_gap(products, avg_rating)
 
-    # ── Products to model (best fit for user's price + competition filters) ──
     modellable = sorted(
         [p for p in in_price_range if p.get("review_count", 999) < max_top_seller_reviews],
         key=lambda x: x.get("review_count", 999),
     )[:5]
 
-    # ── Can you afford it ─────────────────────────────────────────────────────
     target_unit_cost = round(avg_price * 0.28, 2)  # 28% of sell price → unit cost
     min_order_cost   = target_unit_cost * 100        # assume 100-unit MOQ
     can_afford       = budget >= min_order_cost
@@ -82,6 +83,7 @@ def analyze_niche(
             "can_afford":       can_afford,
             "verdict":          "Yes — within budget" if can_afford else f"Stretch — need ~${round(min_order_cost - budget):,} more",
         },
+        "data_source": data_source,
     }
 
 
@@ -176,4 +178,5 @@ def _empty_report(keyword: str) -> dict:
         "the_gap":   [],
         "products_to_model": [],
         "can_you_afford_it": {},
+        "data_source": "stub",
     }
