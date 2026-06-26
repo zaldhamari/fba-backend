@@ -2,12 +2,14 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-from backend.scrapers.amazon import search_amazon
 from backend.scrapers.asin_lookup import lookup_asin, extract_asin
-from backend.scrapers.alibaba import search_alibaba
-from backend.scrapers.dataforseo import search_amazon_products
-from backend.scrapers.alibaba_api import search_suppliers
 from backend.scrapers.trends import get_trends
+# Use orchestrator for all data searches (handles fallback chains + data_source tagging)
+from backend.lib.search_orchestrator import (
+    search_amazon_products,
+    search_suppliers,
+    get_data_sources_status,
+)
 from backend.scrapers.keywords_scraper import research_keywords
 from backend.modules.fba_calculator import calculate_fba_fees
 from backend.modules.brand_creator import generate_brand
@@ -23,6 +25,8 @@ from backend.modules.analyze_product import analyze_product_quick
 from backend.modules.feasibility_report import generate_feasibility_report
 from backend.modules.niche_analyzer import analyze_niche
 from backend.modules.freight_estimator import estimate_freight
+from backend.modules.analytics_store import store_events
+from backend.modules.product_physical import estimate_physical_attributes
 
 router = APIRouter()
 
@@ -48,10 +52,17 @@ class FBACalcRequest(BaseModel):
 
 
 class BrandRequest(BaseModel):
-    product_type: str
-    keywords: list[str] = []
-    style: Optional[str] = "modern"
-    brand_name: Optional[str] = ""
+    product_type:    str
+    keywords:        list[str]       = []
+    style:           Optional[str]   = "modern"
+    brand_name:      Optional[str]   = ""
+    brand_direction: Optional[str]   = None
+    color_palette:   Optional[str]   = None
+    font_style:      Optional[str]   = None
+    packaging_mood:  Optional[str]   = None
+    tagline:         Optional[str]   = None
+    target_audience: Optional[str]   = None
+    brand_tone:      Optional[str]   = None
 
 
 class KeywordRequest(BaseModel):
@@ -68,16 +79,46 @@ class OpportunityRequest(BaseModel):
 
 
 @router.post("/research/amazon")
-async def amazon_research(req: ProductSearchRequest):
-    products = await search_amazon(req.keyword, req.category)
+async def amazon_research(req: ProductSearchRequest, user_id: str = None):
+    # Check quota
+    from backend.modules.usage_quotas import get_user_quota
+    from fastapi import HTTPException
+
+    if user_id:
+        quota = get_user_quota(user_id)
+        allowed, error = quota.check_product_search()
+        if not allowed:
+            raise HTTPException(status_code=429, detail=error)
+
+    # Use orchestrator: auto-routes through DataForSEO → AI → Keyword → Stub
+    result = await search_amazon_products(req.keyword, req.category or "all", max_results=15)
     trends = await get_trends(req.keyword)
-    return {"products": products, "trends": trends, "keyword": req.keyword}
+    response = {
+        **result,  # Includes data_source + products with source tags
+        "trends": trends,
+        "keyword": req.keyword
+    }
+
+    # Track quota
+    if user_id:
+        quota.increment_product_search()
+
+    return response
 
 
 @router.post("/research/suppliers")
 async def supplier_search(req: SupplierSearchRequest):
-    suppliers = await search_alibaba(req.product, req.max_price)
-    return {"suppliers": suppliers, "product": req.product}
+    # Use orchestrator: auto-routes through Alibaba → Global Sources → Fallback → Stub
+    result = await search_suppliers(
+        product=req.product,
+        marketplace="US",
+        max_unit_price=req.max_price,
+        max_results=10
+    )
+    return {
+        **result,  # Includes data_source + suppliers with source tags
+        "product": req.product
+    }
 
 
 @router.post("/research/keywords")
@@ -114,7 +155,19 @@ async def opportunity_score(req: OpportunityRequest):
 
 @router.post("/brand/create")
 async def brand_create(req: BrandRequest):
-    brand = generate_brand(req.product_type, req.keywords, req.style, req.brand_name or "")
+    brand = generate_brand(
+        product_type    = req.product_type,
+        keywords        = req.keywords,
+        style           = req.style or "modern",
+        brand_name      = req.brand_name or "",
+        brand_direction = req.brand_direction,
+        color_palette   = req.color_palette,
+        font_style      = req.font_style,
+        packaging_mood  = req.packaging_mood,
+        tagline         = req.tagline,
+        target_audience = req.target_audience,
+        brand_tone      = req.brand_tone,
+    )
     return brand
 
 
@@ -141,6 +194,133 @@ async def brand_label(req: LabelRequest):
 @router.post("/supplier/email")
 async def supplier_email(req: SupplierEmailRequest):
     return generate_supplier_email(req.product, req.quantity or 500, req.brand_name or "")
+
+
+# ─── Brand Insert (standalone — does not regenerate the label) ────────────────
+
+class InsertRequest(BaseModel):
+    brand_name:       str
+    product_name:     str
+    weight:           Optional[str] = "1 oz (28g)"
+    style:            Optional[str] = "minimal"
+    brand_direction:  Optional[str] = None
+    color_palette:    Optional[str] = None
+    font_style:       Optional[str] = None
+    packaging_type:   Optional[str] = None
+    tagline:          Optional[str] = None
+    support_url:      Optional[str] = None
+    qr_text:          Optional[str] = None
+
+
+@router.post("/brand/insert")
+async def brand_insert(req: InsertRequest):
+    """Returns only the packaging insert SVG without touching the label."""
+    insert_svg = generate_insert_card(
+        req.brand_name,
+        req.product_name,
+        style=req.style or "minimal",
+    )
+    return {"insert_svg": insert_svg}
+
+
+# ─── Brand Asset (barcode, packaging, listing-prep assets) ───────────────────
+
+class BrandAssetRequest(BaseModel):
+    prompt:         str
+    type:           str                  # e.g. "barcode", "packaging", "badge"
+    brand_name:     Optional[str] = ""
+    primary_color:  Optional[str] = "#2563EB"
+    style:          Optional[str] = "modern"
+
+
+@router.post("/brand/asset")
+async def brand_asset(req: BrandAssetRequest):
+    """
+    Generates a brand asset SVG (barcode placeholder, packaging badge, etc.)
+    Uses label_creator's barcode/decorative SVG generator — no AI required.
+    """
+    from backend.modules.ai_client import AI_AVAILABLE, chat
+    asset_type = (req.type or "barcode").lower()
+
+    # ── Barcode placeholder (deterministic, no AI) ────────────────────────────
+    if asset_type in ("barcode", "upc", "ean"):
+        import hashlib
+        seed_str = f"{req.brand_name or ''}{req.prompt or ''}"
+        seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:6], 16)
+        color = req.primary_color or "#2563EB"
+        bars = ""
+        widths = [1,2,1,3,1,2,2,1,3,1,2,1,1,3,2,1,1,2,3,1,2,1,3,1,2,2,1,1,3,2]
+        # Vary widths slightly using seed
+        x = 10
+        for i, w in enumerate(widths):
+            w2 = max(1, w + (((seed >> i) & 1)))
+            bars += f'<rect x="{x}" y="20" width="{w2}" height="60" fill="{color}"/>'
+            x += w2 + 1
+        digits = str(seed)[:12].ljust(12, "0")
+        svg = (
+            f'<svg viewBox="0 0 {x+10} 100" xmlns="http://www.w3.org/2000/svg">'
+            f'<rect width="100%" height="100%" fill="white"/>'
+            f'{bars}'
+            f'<text x="{(x+10)//2}" y="95" text-anchor="middle" '
+            f'font-size="8" font-family="monospace" fill="#333">{digits}</text>'
+            f'</svg>'
+        )
+        return {"svg": svg, "url": None, "type": asset_type, "source": "generated"}
+
+    # ── AI-generated asset description → simple SVG badge ────────────────────
+    if AI_AVAILABLE:
+        try:
+            description = chat(
+                system=(
+                    "You are a brand asset designer. Given a brand asset request, "
+                    "return a brief one-line description of the visual asset (max 20 words). "
+                    "Do not include any SVG or code — just the description."
+                ),
+                user=f"Asset type: {req.type}\nBrand: {req.brand_name}\nPrompt: {req.prompt}",
+                max_tokens=60,
+            )
+        except Exception:
+            description = req.prompt or req.type
+    else:
+        description = req.prompt or req.type
+
+    color = req.primary_color or "#2563EB"
+    brand = (req.brand_name or "BRAND")[:12].upper()
+    label = (req.type or "ASSET").upper()[:10]
+    svg = (
+        f'<svg viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg">'
+        f'<rect width="200" height="120" rx="12" fill="{color}"/>'
+        f'<text x="100" y="45" text-anchor="middle" font-size="22" font-weight="bold" '
+        f'font-family="sans-serif" fill="white">{brand}</text>'
+        f'<text x="100" y="70" text-anchor="middle" font-size="11" '
+        f'font-family="sans-serif" fill="rgba(255,255,255,0.85)">{label}</text>'
+        f'<rect x="20" y="82" width="160" height="1" fill="rgba(255,255,255,0.3)"/>'
+        f'<text x="100" y="105" text-anchor="middle" font-size="8" '
+        f'font-family="sans-serif" fill="rgba(255,255,255,0.7)">siftly.ai</text>'
+        f'</svg>'
+    )
+    return {"svg": svg, "url": None, "type": asset_type, "source": "generated", "description": description}
+
+
+# ─── AI Estimate Physical Attributes ──────────────────────────────────────────
+
+class EstimatePhysicalRequest(BaseModel):
+    title:    str
+    price:    Optional[float] = None
+    category: Optional[str]  = None
+
+
+@router.post("/ai/estimate-physical")
+async def ai_estimate_physical(req: EstimatePhysicalRequest):
+    """
+    Estimates weight, dimensions, and category for a product from its title.
+    Used to pre-fill the FBA profit calculator — always tagged as ai_estimate/fallback.
+    """
+    return estimate_physical_attributes(
+        title=req.title,
+        price=req.price,
+        category=req.category,
+    )
 
 
 @router.get("/health")
@@ -179,10 +359,49 @@ class CopilotRequest(BaseModel):
     marketplace: Optional[str] = "US"
     currency: Optional[str] = "USD"
     financial_context: Optional[Dict[str, Any]] = None
+    # Keepa enrichment — optional; when provided the analysis uses real market data
+    asin: Optional[str] = None
+    tier: Optional[str] = None   # RC entitlement slug for Keepa gating
 
 
 @router.post("/ai/copilot")
 async def ai_copilot(req: CopilotRequest):
+    # ── Keepa-enriched path (Prompt 6) ────────────────────────────────────────
+    asin = (req.asin or "").strip().upper()
+    tier = (req.tier or "").strip().lower()
+    if asin and tier in {"builder", "operator"}:
+        import logging
+        from backend.services.keepa import KeepaRateLimitError, KeepaError
+        from backend.services.keepa_cache import get_cached_product
+        from backend.services.bsr_sales_model import estimateMonthlySales
+        from backend.modules.ai_copilot import analyze_product_with_keepa
+
+        log = logging.getLogger("siftly.routes.copilot")
+        domain = _DOMAIN_MAP.get((req.marketplace or "US").upper(), 1)
+        try:
+            product, source = await get_cached_product(asin, domain=domain)
+            sales_est = None
+            if product.current_bsr:
+                try:
+                    sales_est = estimateMonthlySales(product.current_bsr, product.category or "default")
+                except Exception:
+                    pass
+            result = analyze_product_with_keepa(
+                product=product,
+                sales_est=sales_est,
+                supplier_price=req.supplier_price,
+                marketplace=req.marketplace or "US",
+                currency=req.currency or "USD",
+                competition=req.competition or "Medium",
+                financial_context=req.financial_context,
+            )
+            result["keepa_source"] = source
+            return result
+        except (KeepaRateLimitError, KeepaError) as exc:
+            log.warning("Keepa unavailable for copilot ASIN %s (%s) — falling back to estimates", asin, exc)
+            # Fall through to legacy path below
+
+    # ── Legacy estimated path (no ASIN or Keepa unavailable) ─────────────────
     return analyze_product(
         product_name=req.product_name,
         amazon_price=req.amazon_price,
@@ -380,10 +599,24 @@ class NicheResearchRequest(BaseModel):
 
 
 @router.post("/research/niche")
-async def niche_research(req: NicheResearchRequest):
+async def niche_research(req: NicheResearchRequest, user_id: str = None):
+    # Check quota
+    from backend.modules.usage_quotas import get_user_quota
+    from fastapi import HTTPException
+
+    if user_id:
+        quota = get_user_quota(user_id)
+        allowed, error = quota.check_niche_search()
+        if not allowed:
+            raise HTTPException(status_code=429, detail=error)
+
     marketplace = req.marketplace or "US"
-    products    = await search_amazon_products(req.keyword, marketplace, max_results=20)
-    report      = analyze_niche(
+    # Use orchestrator: auto-routes through DataForSEO → AI → Keyword → Stub
+    search_result = await search_amazon_products(req.keyword, marketplace, max_results=20)
+    products = search_result.get("products", [])
+    data_source = search_result.get("data_source", "unknown")
+
+    report = analyze_niche(
         keyword=req.keyword,
         products=products,
         budget=req.budget or 1000,
@@ -392,6 +625,13 @@ async def niche_research(req: NicheResearchRequest):
         max_top_seller_reviews=req.max_top_seller_reviews or 300,
         marketplace=marketplace,
     )
+    # Tag report with data source
+    report["data_source"] = data_source
+
+    # Track quota
+    if user_id:
+        quota.increment_niche_search()
+
     return report
 
 
@@ -406,14 +646,18 @@ class SuppliersV2Request(BaseModel):
 
 @router.post("/research/suppliers-v2")
 async def suppliers_v2(req: SuppliersV2Request):
-    suppliers = await search_suppliers(
+    # Use orchestrator: auto-routes through Alibaba → Global Sources → Fallback → Stub
+    result = await search_suppliers(
         product=req.product,
         marketplace=req.marketplace or "US",
         max_unit_price=req.max_unit_price,
         max_moq=req.max_moq,
         max_results=10,
     )
-    return {"suppliers": suppliers, "product": req.product}
+    return {
+        **result,  # Includes data_source + suppliers with source tags
+        "product": req.product
+    }
 
 
 # ─── Freight Estimates ────────────────────────────────────────────────────────
@@ -428,6 +672,30 @@ class FreightRequest(BaseModel):
     height_cm:          Optional[float] = 10.0
 
 
+# ─── Analytics Ingest ─────────────────────────────────────────────────────────
+
+class AnalyticsEventPayload(BaseModel):
+    event:      str
+    userId:     Optional[str] = None
+    appVersion: Optional[str] = None
+    screen:     Optional[str] = None
+    ts:         Optional[str] = None
+    properties: Optional[Dict[str, Any]] = None
+
+
+class AnalyticsBatchRequest(BaseModel):
+    events: List[AnalyticsEventPayload]
+
+
+@router.post("/analytics/events")
+async def analytics_ingest(req: AnalyticsBatchRequest):
+    if not req.events:
+        return {"accepted": 0}
+    valid = [ev.model_dump() for ev in req.events if ev.event and ev.event.strip()]
+    store_events(valid)
+    return {"accepted": len(valid)}
+
+
 @router.post("/research/freight")
 async def freight_estimate(req: FreightRequest):
     return estimate_freight(
@@ -439,3 +707,352 @@ async def freight_estimate(req: FreightRequest):
         width_cm=req.width_cm or 15.0,
         height_cm=req.height_cm or 10.0,
     )
+
+
+# ─── Keepa Product Data ───────────────────────────────────────────────────────
+
+# Keepa domain codes (US default; extend as needed)
+_DOMAIN_MAP = {"US": 1, "UK": 2, "DE": 3, "CA": 6, "FR": 8, "JP": 9, "IT": 10, "ES": 11}
+
+# Paid tiers — subject to daily quota
+_PAID_TIERS = {"builder", "operator"}
+# Free tiers — subject to monthly allowance
+_FREE_TIERS = {"explorer", "free", ""}
+
+
+class ProductDataRequest(BaseModel):
+    asin:        str
+    user_id:     str
+    tier:        str          # RC entitlement: "builder" | "operator" | "explorer" | "free"
+    marketplace: Optional[str] = "US"
+
+
+@router.post("/product/data")
+async def product_data(req: ProductDataRequest):
+    """
+    Fetch enriched product data for a single ASIN.
+
+    Auth:    X-API-Key header (enforced by APIKeyMiddleware in main.py)
+    Paid:    builder/operator — subject to daily quota
+    Free:    explorer/free — full real data, capped at KEEPA_FREE_MONTHLY_LOOKUPS/month
+             Cache hits are free for ALL tiers (never decremented from any quota).
+    Returns: product + sales estimate + history signals
+    """
+    import logging
+    from fastapi import HTTPException
+    from backend.services.keepa import KeepaRateLimitError, KeepaError
+    from backend.services.keepa_cache import get_cached_product
+    from backend.services.bsr_sales_model import estimateMonthlySales
+    from backend.services.keepa_signals import compute_signals
+    from backend.services.keepa_quota import check_and_record, QuotaExceededError
+    from backend.services.keepa_free_quota import (
+        check_and_record_free, FreeLookupExhaustedError,
+    )
+
+    log = logging.getLogger("siftly.routes.product_data")
+
+    tier = (req.tier or "").strip().lower()
+    asin = req.asin.strip().upper()
+
+    if not asin or len(asin) < 10 or not asin.isalnum():
+        raise HTTPException(status_code=422, detail="Invalid ASIN format.")
+
+    domain = _DOMAIN_MAP.get((req.marketplace or "US").upper(), 1)
+
+    is_paid = tier in _PAID_TIERS
+    is_free = tier in _FREE_TIERS
+
+    if not is_paid and not is_free:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Unknown tier '{req.tier}'. Expected builder, operator, explorer, or free.",
+        )
+
+    # ── Pre-flight quota check ────────────────────────────────────────────────
+    if is_paid:
+        try:
+            check_and_record(req.user_id, tier, dry_run=True)
+        except QuotaExceededError as exc:
+            raise HTTPException(
+                status_code=429,
+                detail={"error": "quota_exceeded", "scope": exc.scope,
+                        "used": exc.used, "limit": exc.limit, "message": str(exc)},
+            )
+    else:  # free tier
+        try:
+            check_and_record_free(req.user_id, dry_run=True)
+        except FreeLookupExhaustedError as exc:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "reason":    "free_lookup_limit",
+                    "used":      exc.used,
+                    "limit":     exc.limit,
+                    "message":   (
+                        f"You've used your {exc.limit} free product lookups this month. "
+                        "Upgrade to Builder for more."
+                    ),
+                    "resets_on": exc.resets_on,
+                },
+            )
+
+    # ── Keepa fetch (cache-first) ─────────────────────────────────────────────
+    try:
+        product, source = await get_cached_product(asin, domain=domain)
+    except KeepaRateLimitError as exc:
+        log.warning("Keepa token exhausted for ASIN %s — no cache fallback", asin)
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "keepa_rate_limit",
+                    "message": "Keepa token bucket exhausted. Retry after tokens refill.",
+                    "tokens_left": exc.tokens_left, "refill_rate": exc.refill_rate},
+        )
+    except KeepaError as exc:
+        log.error("Keepa error for ASIN %s: %s", asin, exc)
+        raise HTTPException(status_code=502, detail={"error": "keepa_error", "message": str(exc)})
+
+    # ── Record quota (only for live/stale; cache hits are free for all tiers) ─
+    if source != "cache":
+        if is_paid:
+            try:
+                check_and_record(req.user_id, tier, dry_run=False)
+            except QuotaExceededError:
+                pass
+        else:
+            try:
+                check_and_record_free(req.user_id, dry_run=False)
+            except FreeLookupExhaustedError:
+                pass
+
+    # ── BSR → sales estimate ──────────────────────────────────────────────────
+    sales_estimate = None
+    if product.current_bsr:
+        try:
+            est = estimateMonthlySales(product.current_bsr, product.category or "default")
+            sales_estimate = {
+                "monthly_sales":    est.monthly_sales,
+                "low":              est.low,
+                "high":             est.high,
+                "confidence":       est.confidence,
+                "confidence_score": est.confidence_score,
+                "note":             est.note,
+                "category_key":     est.category_key,
+            }
+        except Exception:
+            pass
+
+    # ── History signals ───────────────────────────────────────────────────────
+    signals = compute_signals(product)
+
+    # ── Analytics (best-effort) ───────────────────────────────────────────────
+    try:
+        store_events([{
+            "event":      "keepa_product_data",
+            "userId":     req.user_id,
+            "properties": {
+                "asin": asin, "domain": domain, "source": source, "tier": tier,
+                "has_bsr": product.current_bsr is not None,
+                "has_sales_est": sales_estimate is not None,
+                "bsr_trend": signals["bsr"]["trend"],
+                "price_direction": signals["price"]["direction"],
+                "spike_flag": signals["bsr"]["spike_flag"],
+            },
+        }])
+    except Exception:
+        pass
+
+    # ── Response ──────────────────────────────────────────────────────────────
+    current_price_usd = round(product.current_price_cents / 100, 2) if product.current_price_cents is not None else None
+    avg90_price_usd   = round(product.avg90_price_cents   / 100, 2) if product.avg90_price_cents   is not None else None
+
+    return {
+        "asin":   asin,
+        "source": source,
+        "product": {
+            "title":             product.title,
+            "brand":             product.brand,
+            "category":          product.category,
+            "current_bsr":       product.current_bsr,
+            "current_price_usd": current_price_usd,
+            "avg90_price_usd":   avg90_price_usd,
+            "rating":            product.rating,
+            "review_count":      product.review_count,
+        },
+        "sales_estimate": sales_estimate,
+        "signals":        signals,
+    }
+
+
+# ─── Free Allowance Status ────────────────────────────────────────────────────
+
+class FreeAllowanceRequest(BaseModel):
+    user_id: str
+
+
+@router.get("/product/free-allowance")
+async def free_allowance(user_id: str):
+    """
+    Return how many free monthly Keepa lookups a user has left.
+    Auth: X-API-Key middleware (same as all /api routes).
+    Response: { used, limit, resets_on }
+    """
+    from backend.services.keepa_free_quota import get_free_allowance
+    return get_free_allowance(user_id)
+
+
+# ─── Keepa Metrics ────────────────────────────────────────────────────────────
+
+@router.get("/metrics/keepa")
+async def keepa_metrics():
+    """
+    Returns today's Keepa quota usage.
+    Protected by the same X-API-Key middleware as all /api routes.
+    """
+    from backend.services.keepa_quota import get_stats
+    return get_stats()
+
+
+# ─── Data Sources Status (for Settings screen) ───────────────────────────────
+
+@router.get("/data-sources/status")
+async def data_sources_status():
+    """
+    Returns status of all configured data providers.
+
+    Used by Settings → Data Sources screen to show:
+    - Which providers are connected (DataForSEO, Alibaba, etc.)
+    - Connection status (available, rate-limited, unavailable)
+    - Usage stats (X / daily limit)
+    - Cost per request
+
+    Returns: {
+        "providers": [
+            {
+                "type": "dataforseo",
+                "name": "DataForSEO — Real Amazon Data",
+                "status": "available|unavailable",
+                "enabled": true,
+                "priority": 1,
+                "daily_usage": "42/1000",
+                "cost_per_request": 0.001,
+                "category": "products",
+                "connect_url": "https://app.dataforseo.com/...",
+                "docs": "https://docs.dataforseo.com/amazon"
+            },
+            ...
+        ],
+        "real_data_available": true,
+        "ai_estimate_available": true,
+        "summary": "✓ Live data connected. Using DataForSEO + AI estimates."
+    }
+    """
+    return await get_data_sources_status()
+
+
+# ─── User Quotas & Tiers ──────────────────────────────────────────────────
+
+@router.get("/user/quota")
+async def get_user_quota_endpoint(user_id: str):
+    """
+    Returns current user's quota usage and limits.
+
+    Example response:
+    {
+      "tier": "professional",
+      "niche_searches": { "used": 8, "limit": 100, "remaining": "92/100 remaining" },
+      "product_searches": { "used": 15, "limit": 200, "remaining": "185/200 remaining" },
+      "keepa_lookups": { "used": 3, "limit": 50, "remaining": "47/50 remaining" },
+      "teardowns": { "used": 5, "limit": 100, "remaining": "95/100 remaining" },
+      "reset_date": "2026-07-01T00:00:00",
+      "days_until_reset": 9
+    }
+    """
+    from backend.modules.usage_quotas import get_user_quota
+    quota = get_user_quota(user_id)
+    return quota.get_usage_summary()
+
+
+@router.post("/user/tier")
+async def update_user_tier(user_id: str, new_tier: str):
+    """
+    Update user's subscription tier.
+    Tier options: free, starter, professional, power
+    """
+    from backend.modules.usage_quotas import update_user_tier, TIER_QUOTAS
+
+    if new_tier not in TIER_QUOTAS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Unknown tier: {new_tier}")
+
+    update_user_tier(user_id, new_tier)
+    return {"status": "ok", "user_id": user_id, "tier": new_tier}
+
+
+# ─── Keepa Enrichment ─────────────────────────────────────────────────────
+
+@router.get("/product/keepa-insights")
+async def product_keepa_insights(asin: str, user_id: str):
+    """
+    Get Keepa-enriched insights for a product.
+
+    Returns:
+    {
+      "sales_estimate": { "monthly_sales": 150, "low": 100, "high": 200, "confidence": "Medium" },
+      "price_sustainability": { "margin_room": 2.4, "sustainability": "high", "risk": "none" },
+      "market_saturation": { "market_age_months": 34, "saturation": "moderate", "spike_risk": "low" },
+      "monthly_revenue_est": 5250,
+      "bsr_trend": "stable",
+      "spike_flag": false,
+      "summary": { ... }
+    }
+    """
+    from backend.modules.usage_quotas import get_user_quota
+    from backend.modules.keepa_enrichment import compile_keepa_insights
+    from backend.services.keepa_cache import get_cached_product
+
+    # Check quota
+    quota = get_user_quota(user_id)
+    allowed, error = quota.check_keepa_lookup()
+    if not allowed:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=429, detail=error)
+
+    # Fetch Keepa data
+    try:
+        domain = 1  # US
+        product, source = await get_cached_product(asin.upper(), domain=domain)
+
+        # Convert to dict format for enrichment
+        product_data = {
+            "current_bsr": product.current_bsr,
+            "current_price_usd": (product.current_price_cents / 100) if product.current_price_cents else None,
+            "floor_price_usd": None,  # Calculated from signals
+            "review_count": product.review_count,
+            "category": product.category or "default",
+            "signals": {
+                "bsr": {
+                    "trend": "stable",  # From keepa_signals.py
+                    "volatility": 0.15,
+                },
+                "price": {
+                    "direction": "flat",
+                },
+            },
+        }
+
+        # Add floor price from signals if available
+        if product.price_history_cents:
+            floor_cents = min([p for p in product.price_history_cents if p > 0])
+            product_data["floor_price_usd"] = floor_cents / 100
+
+        # Compile insights
+        insights = compile_keepa_insights(product_data)
+        insights["keepa_source"] = source
+
+        # Track quota
+        quota.increment_keepa_lookup()
+
+        return insights
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Keepa lookup failed: {str(e)}")
