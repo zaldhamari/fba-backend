@@ -103,7 +103,6 @@ async def search_amazon_products(
             "competition":  _competition_label(reviews),
             "opportunity":  _opportunity_label(price, reviews),
             "source":       "dataforseo",
-            "_type":        item_type,
         })
 
     return products[:max_results]
