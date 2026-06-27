@@ -13,15 +13,15 @@ import httpx
 
 RECRAFT_BASE = "https://external.api.recraft.ai/v1"
 
-# Map brand styles to Recraft vector illustration substyles
+# All brand styles map to vector_illustration (Recraft V3 vector model)
 _STYLE_MAP: dict[str, str] = {
-    "modern":  "vector_illustration/flat_design",
+    "modern":  "vector_illustration",
     "premium": "vector_illustration",
     "playful": "vector_illustration",
-    "minimal": "vector_illustration/line_art",
+    "minimal": "vector_illustration",
     "luxury":  "vector_illustration",
     "eco":     "vector_illustration",
-    "bold":    "vector_illustration/flat_design",
+    "bold":    "vector_illustration",
 }
 
 # Color hints for logo generation prompts
