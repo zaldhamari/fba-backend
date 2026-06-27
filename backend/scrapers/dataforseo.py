@@ -18,11 +18,11 @@ import httpx
 DATAFORSEO_BASE = "https://api.dataforseo.com/v3"
 
 MARKETPLACE_TO_LOCATION: dict[str, tuple[int, str]] = {
-    "US": (2840,  "en"),
-    "UK": (2826,  "en"),
-    "DE": (2276,  "de"),
-    "CA": (2124,  "en"),
-    "AU": (2036,  "en"),
+    "US": (2840,  "en_US"),
+    "UK": (2826,  "en_GB"),
+    "DE": (2276,  "de_DE"),
+    "CA": (2124,  "en_CA"),
+    "AU": (2036,  "en_AU"),
 }
 
 
