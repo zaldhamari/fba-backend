@@ -43,6 +43,7 @@ class DataSourceRouterImpl(ProviderRouter):
         """
         # ── Detect available providers ─────────────────────────────────────────
         dataforseo_enabled = _is_dataforseo_configured()
+        dataforseo_login   = os.getenv('DATAFORSEO_LOGIN', '')
         alibaba_enabled = os.getenv('ALIBABA_ICBU_ENABLED', 'false').lower() == 'true'
         ai_enabled = AI_AVAILABLE
 
@@ -52,6 +53,7 @@ class DataSourceRouterImpl(ProviderRouter):
             ProviderType.DATAFORSEO: DataSourceConfig(
                 provider=ProviderType.DATAFORSEO,
                 enabled=dataforseo_enabled,
+                api_key=dataforseo_login or None,  # Required for status check
                 priority=1,  # Highest priority
                 rate_limit_per_day=1000,
                 cost_per_request=0.001,
