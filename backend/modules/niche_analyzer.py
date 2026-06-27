@@ -38,7 +38,7 @@ def analyze_niche(
         p for p in products
         if p.get("price") and price_min <= p["price"] <= price_max
     ]
-    low_comp = [p for p in products if p.get("review_count", 999) < max_top_seller_reviews]
+    low_comp = [p for p in products if (p.get("review_count") or 999) < max_top_seller_reviews]
 
     # ── Verdict ───────────────────────────────────────────────────────────────
     verdict = _derive_verdict(
@@ -51,8 +51,8 @@ def analyze_niche(
 
     # ── Products to model (best fit for user's price + competition filters) ──
     modellable = sorted(
-        [p for p in in_price_range if p.get("review_count", 999) < max_top_seller_reviews],
-        key=lambda x: x.get("review_count", 999),
+        [p for p in in_price_range if (p.get("review_count") or 999) < max_top_seller_reviews],
+        key=lambda x: (x.get("review_count") or 999),
     )[:5]
 
     # ── Can you afford it ─────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ def _derive_gap(products: list[dict], avg_rating: float) -> list[str]:
         gaps.append("Category average rating is below 4.2★ — customers want better")
 
     high_reviews_only = all(
-        p.get("review_count", 0) > 500 for p in products[:5]
+        (p.get("review_count") or 0) > 500 for p in products[:5]
     )
     if high_reviews_only:
         gaps.append("Top 5 products are entrenched — look for long-tail keyword variations")
