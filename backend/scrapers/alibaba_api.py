@@ -18,9 +18,6 @@ import time
 from typing import Optional
 import httpx
 
-_APP_KEY    = os.environ.get("ALIBABA_APP_KEY", "")
-_APP_SECRET = os.environ.get("ALIBABA_APP_SECRET", "")
-
 ALIBABA_GATEWAY = "https://eco.taobao.com/router/rest"
 
 MARKETPLACE_TO_CURRENCY = {
@@ -29,7 +26,7 @@ MARKETPLACE_TO_CURRENCY = {
 
 
 def _is_configured() -> bool:
-    return bool(_APP_KEY and _APP_SECRET)
+    return bool(os.environ.get("ALIBABA_APP_KEY") and os.environ.get("ALIBABA_APP_SECRET"))
 
 
 def _sign(params: dict[str, str], secret: str) -> str:
@@ -54,9 +51,12 @@ async def search_suppliers(
         return _stub_results(product, marketplace, max_unit_price, max_moq, max_results)
     # ───────────────────────────────────────────────────────────────────
 
+    app_key    = os.environ.get("ALIBABA_APP_KEY", "")
+    app_secret = os.environ.get("ALIBABA_APP_SECRET", "")
+
     params = {
         "method":        "alibaba.icbu.product.search",
-        "app_key":       _APP_KEY,
+        "app_key":       app_key,
         "timestamp":     str(int(time.time() * 1000)),
         "format":        "json",
         "v":             "2.0",
@@ -70,7 +70,7 @@ async def search_suppliers(
         params["price_from"] = "0"
         params["price_to"]   = str(max_unit_price)
 
-    params["sign"] = _sign(params, _APP_SECRET)
+    params["sign"] = _sign(params, app_secret)
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(ALIBABA_GATEWAY, data=params)
