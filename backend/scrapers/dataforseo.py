@@ -10,7 +10,9 @@ Cost: ~$0.003 per request (Amazon Organic SERP, live endpoint)
 Docs: https://docs.dataforseo.com/v3/serp/amazon/organic/live/
 """
 import asyncio
+import hashlib
 import os
+import re
 import base64
 from typing import Optional
 import httpx
@@ -43,7 +45,7 @@ async def search_amazon_products(
     max_results: int = 20,
 ) -> list[dict]:
     """
-    Returns real Amazon product listings via DataForSEO Merchant API.
+    Returns real Amazon product listings via DataForSEO SERP API.
     Falls back to stub data when credentials are not configured.
     """
     # ── STUB MODE (remove when API key is set) ─────────────────────────
@@ -90,14 +92,25 @@ async def search_amazon_products(
         reviews = item.get("reviews_count") or item.get("reviews_info", {}).get("reviews_count")
         rating_raw = item.get("rating")
         rating_val = rating_raw.get("value") if isinstance(rating_raw, dict) else rating_raw
+        # Extract ASIN: prefer explicit field, then parse from URL, then hash title
+        asin = item.get("asin", "") or ""
+        if not asin:
+            url_str = item.get("url", "") or ""
+            m = re.search(r'/dp/([A-Z0-9]{10})', url_str)
+            asin = m.group(1) if m else ""
+        if not asin:
+            title_key = (item.get("title") or "").encode()
+            asin = "SX" + hashlib.md5(title_key).hexdigest()[:8].upper()
+        images_list = item.get("images")
+        image_url = item.get("image_url") or (images_list[0] if images_list else None)
         products.append({
             "title":        item.get("title", ""),
             "price":        price,
             "price_to":     item.get("price_to"),
             "rating":       rating_val,
             "review_count": reviews,
-            "asin":         item.get("asin", ""),
-            "image":        item.get("image_url") or item.get("images", [None])[0],
+            "asin":         asin,
+            "image":        image_url,
             "url":          item.get("url", ""),
             "is_prime":     item.get("is_amazon_choice") or item.get("is_best_seller"),
             "competition":  _competition_label(reviews),
@@ -114,14 +127,14 @@ def _domain_for(marketplace: str) -> str:
     return domains.get(marketplace, "amazon.com")
 
 
-def _competition_label(reviews: Optional[int]) -> str:
+def _competition_label(reviews) -> str:
     if reviews is None:      return "Unknown"
     if reviews < 100:        return "Low"
     if reviews < 500:        return "Medium"
     return "High"
 
 
-def _opportunity_label(price: Optional[float], reviews: Optional[int]) -> str:
+def _opportunity_label(price, reviews) -> str:
     p = price or 0
     r = reviews or 999
     if r < 200 and p > 20:  return "Good"
