@@ -190,6 +190,8 @@ async def opportunity_score(req: OpportunityRequest):
 
 @router.post("/brand/create")
 async def brand_create(req: BrandRequest):
+    from backend.scrapers.recraft import generate_logo_url
+
     brand = generate_brand(
         product_type    = req.product_type,
         keywords        = req.keywords,
@@ -203,6 +205,19 @@ async def brand_create(req: BrandRequest):
         target_audience = req.target_audience,
         brand_tone      = req.brand_tone,
     )
+
+    # Generate high-quality vector logo via Recraft (falls back to logo_svg if unavailable)
+    try:
+        logo_url = await generate_logo_url(
+            brand_name    = brand["brand_name"],
+            style         = req.style or "modern",
+            color_palette = req.color_palette,
+        )
+        if logo_url:
+            brand["logo_url"] = logo_url
+    except Exception:
+        pass  # logo_svg fallback still present in brand dict
+
     return brand
 
 
