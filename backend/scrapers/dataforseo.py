@@ -58,12 +58,11 @@ async def search_amazon_products(
         "location_code": location_code,
         "language_code": language_code,
         "depth":         max_results,
-        "se_domain":     _domain_for(marketplace),
     }]
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         resp = await client.post(
-            f"{DATAFORSEO_BASE}/serp/amazon/organic/live/advanced",
+            f"{DATAFORSEO_BASE}/merchant/amazon/products/live/advanced",
             headers={
                 "Authorization": _auth_header(),
                 "Content-Type":  "application/json",
@@ -81,20 +80,23 @@ async def search_amazon_products(
 
     products = []
     for item in items:
-        if item.get("type") != "amazon_serp_element":
+        if item.get("type") not in ("amazon_serp_element", "amazon_product_info"):
             continue
+        price = item.get("price_from") or item.get("price")
+        reviews = item.get("reviews_count") or item.get("rating", {}).get("votes_count")
+        rating_val = (item.get("rating") or {}).get("value") if isinstance(item.get("rating"), dict) else item.get("rating")
         products.append({
             "title":        item.get("title", ""),
-            "price":        item.get("price_from"),
+            "price":        price,
             "price_to":     item.get("price_to"),
-            "rating":       item.get("rating", {}).get("value"),
-            "review_count": item.get("reviews_count"),
+            "rating":       rating_val,
+            "review_count": reviews,
             "asin":         item.get("asin", ""),
             "image":        item.get("image_url", ""),
             "url":          item.get("url", ""),
             "is_prime":     item.get("is_amazon_choice") or item.get("is_best_seller"),
-            "competition":  _competition_label(item.get("reviews_count")),
-            "opportunity":  _opportunity_label(item.get("price_from"), item.get("reviews_count")),
+            "competition":  _competition_label(reviews),
+            "opportunity":  _opportunity_label(price, reviews),
             "source":       "dataforseo",
         })
 
