@@ -103,19 +103,34 @@ async def search_amazon_products(
             asin = "SX" + hashlib.md5(title_key).hexdigest()[:8].upper()
         images_list = item.get("images")
         image_url = item.get("image_url") or (images_list[0] if images_list else None)
+        # Seller name → brand fallback
+        seller = item.get("seller") or {}
+        brand = item.get("brand") or (seller.get("name") if isinstance(seller, dict) else None)
+        # Units bought past month (Amazon's "X+ bought in past month" label)
+        bought_past_month = (
+            item.get("bought_recommended_count")
+            or item.get("monthly_purchases")
+            or item.get("purchases_30d")
+        )
+        is_best_seller   = bool(item.get("is_best_seller"))
+        is_amazon_choice = bool(item.get("is_amazon_choice"))
         products.append({
-            "title":        item.get("title", ""),
-            "price":        price,
-            "price_to":     item.get("price_to"),
-            "rating":       rating_val,
-            "review_count": reviews,
-            "asin":         asin,
-            "image":        image_url,
-            "url":          item.get("url", ""),
-            "is_prime":     item.get("is_amazon_choice") or item.get("is_best_seller"),
-            "competition":  _competition_label(reviews),
-            "opportunity":  _opportunity_label(price, reviews),
-            "source":       "dataforseo",
+            "title":             item.get("title", ""),
+            "price":             price,
+            "price_to":          item.get("price_to"),
+            "rating":            rating_val,
+            "review_count":      reviews,
+            "asin":              asin,
+            "image":             image_url,
+            "url":               item.get("url", ""),
+            "brand":             brand,
+            "bought_past_month": bought_past_month,
+            "is_best_seller":    is_best_seller,
+            "is_amazon_choice":  is_amazon_choice,
+            "is_prime":          is_amazon_choice or is_best_seller,
+            "competition":       _competition_label(reviews),
+            "opportunity":       _opportunity_label(price, reviews, bought_past_month),
+            "source":            "dataforseo",
         })
 
     return products[:max_results]
@@ -127,15 +142,20 @@ def _domain_for(marketplace: str) -> str:
     return domains.get(marketplace, "amazon.com")
 
 
-def _competition_label(reviews) -> str:
+def _competition_label(reviews: Optional[int]) -> str:
     if reviews is None:      return "Unknown"
     if reviews < 100:        return "Low"
     if reviews < 500:        return "Medium"
     return "High"
 
 
-def _opportunity_label(price, reviews) -> str:
+def _opportunity_label(price: Optional[float], reviews: Optional[int], bought_past_month: Optional[int] = None) -> str:
     p = price or 0
+    # Use real purchase signal when available
+    if bought_past_month and bought_past_month > 0:
+        if bought_past_month > 500 and p > 20:  return "Good"
+        if bought_past_month > 2000:             return "Saturated"
+        return "Moderate"
     r = reviews or 999
     if r < 200 and p > 20:  return "Good"
     if r > 1000 or p < 12: return "Saturated"
@@ -164,7 +184,11 @@ def _stub_results(keyword: str, marketplace: str, max_results: int) -> list[dict
             "asin":         f"B0STUB{n:04d}",
             "image":        "",
             "url":          f"https://www.amazon.com/s?k={keyword.replace(' ', '+')}",
-            "is_prime":     i % 3 == 0,
+            "brand":        f"Brand{i+1}",
+            "bought_past_month": 50 + (n * 3 % 400),
+            "is_best_seller":   i == 0,
+            "is_amazon_choice": i == 1,
+            "is_prime":         i % 3 == 0,
             "competition":  comp,
             "opportunity":  _opportunity_label(price, reviews),
             "source":       "stub",
