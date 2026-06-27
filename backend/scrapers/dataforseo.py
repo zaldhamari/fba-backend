@@ -16,8 +16,6 @@ from typing import Optional
 import httpx
 
 DATAFORSEO_BASE = "https://api.dataforseo.com/v3"
-_LOGIN    = os.environ.get("DATAFORSEO_LOGIN", "")
-_PASSWORD = os.environ.get("DATAFORSEO_PASSWORD", "")
 
 MARKETPLACE_TO_LOCATION: dict[str, tuple[int, str]] = {
     "US": (2840,  "en"),
@@ -29,12 +27,14 @@ MARKETPLACE_TO_LOCATION: dict[str, tuple[int, str]] = {
 
 
 def _auth_header() -> str:
-    token = base64.b64encode(f"{_LOGIN}:{_PASSWORD}".encode()).decode()
+    login    = os.environ.get("DATAFORSEO_LOGIN", "")
+    password = os.environ.get("DATAFORSEO_PASSWORD", "")
+    token = base64.b64encode(f"{login}:{password}".encode()).decode()
     return f"Basic {token}"
 
 
 def _is_configured() -> bool:
-    return bool(_LOGIN and _PASSWORD)
+    return bool(os.environ.get("DATAFORSEO_LOGIN") and os.environ.get("DATAFORSEO_PASSWORD"))
 
 
 async def search_amazon_products(
