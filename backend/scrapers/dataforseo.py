@@ -43,7 +43,7 @@ async def search_amazon_products(
     max_results: int = 20,
 ) -> list[dict]:
     """
-    Returns real Amazon product listings via DataForSEO SERP API.
+    Returns real Amazon product listings via DataForSEO Merchant API.
     Falls back to stub data when credentials are not configured.
     """
     # ── STUB MODE (remove when API key is set) ─────────────────────────
@@ -51,12 +51,11 @@ async def search_amazon_products(
         return _stub_results(keyword, marketplace, max_results)
     # ───────────────────────────────────────────────────────────────────
 
-    location_code, language_code = MARKETPLACE_TO_LOCATION.get(marketplace, (2840, "en"))
+    location_code, _language_code = MARKETPLACE_TO_LOCATION.get(marketplace, (2840, "en"))
 
     payload = [{
         "keyword":       keyword,
         "location_code": location_code,
-        "language_code": language_code,
         "depth":         max_results,
     }]
 
