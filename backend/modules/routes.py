@@ -78,6 +78,28 @@ class OpportunityRequest(BaseModel):
     category: Optional[str] = "all"
 
 
+@router.get("/debug/dataforseo")
+async def debug_dataforseo():
+    """Temporary debug endpoint — tests DataForSEO directly and returns raw error."""
+    import os, base64, httpx
+    login = os.environ.get("DATAFORSEO_LOGIN", "")
+    password = os.environ.get("DATAFORSEO_PASSWORD", "")
+    configured = bool(login and password)
+    if not configured:
+        return {"configured": False, "login_set": bool(login), "password_set": bool(password)}
+    token = base64.b64encode(f"{login}:{password}".encode()).decode()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://api.dataforseo.com/v3/serp/amazon/organic/live/advanced",
+                headers={"Authorization": f"Basic {token}", "Content-Type": "application/json"},
+                json=[{"keyword": "test", "location_code": 2840, "language_code": "en", "depth": 3, "se_domain": "amazon.com"}],
+            )
+            return {"configured": True, "http_status": resp.status_code, "response": resp.json()}
+    except Exception as e:
+        return {"configured": True, "error": str(e), "error_type": type(e).__name__}
+
+
 @router.post("/research/amazon")
 async def amazon_research(req: ProductSearchRequest, user_id: str = None):
     # Check quota
