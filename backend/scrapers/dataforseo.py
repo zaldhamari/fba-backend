@@ -80,9 +80,9 @@ async def search_amazon_products(
 
     products = []
     for item in items:
-        # Skip non-product items (ads, banners, etc.) — keep all amazon product types
+        # Skip paid/sponsored slots; merchant API returns type "amazon_serp"
         item_type = item.get("type", "")
-        if not item_type or item_type in ("amazon_paid", "amazon_sponsored"):
+        if item_type in ("amazon_paid", "amazon_sponsored"):
             continue
         if not item.get("title"):
             continue
@@ -97,7 +97,7 @@ async def search_amazon_products(
             "rating":       rating_val,
             "review_count": reviews,
             "asin":         item.get("asin", ""),
-            "image":        item.get("image_url", ""),
+            "image":        item.get("image_url") or item.get("images", [None])[0],
             "url":          item.get("url", ""),
             "is_prime":     item.get("is_amazon_choice") or item.get("is_best_seller"),
             "competition":  _competition_label(reviews),
