@@ -80,7 +80,7 @@ class OpportunityRequest(BaseModel):
 
 @router.get("/debug/dataforseo")
 async def debug_dataforseo():
-    """Debug: try multiple merchant/amazon payload variants to find what works."""
+    """Debug: check account info, supported languages, and try various endpoints."""
     import os, base64, httpx
     login = os.environ.get("DATAFORSEO_LOGIN", "")
     password = os.environ.get("DATAFORSEO_PASSWORD", "")
@@ -88,29 +88,41 @@ async def debug_dataforseo():
         return {"configured": False}
     token = base64.b64encode(f"{login}:{password}".encode()).decode()
     headers = {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
-    base = "https://api.dataforseo.com/v3/merchant/amazon/products/live/advanced"
-    payloads = {
-        "minimal": [{"keyword": "yoga mat"}],
-        "with_location_code": [{"keyword": "yoga mat", "location_code": 2840}],
-        "with_language_name": [{"keyword": "yoga mat", "location_code": 2840, "language_name": "English"}],
-        "with_language_code": [{"keyword": "yoga mat", "location_code": 2840, "language_code": "en"}],
-        "full_with_depth": [{"keyword": "yoga mat", "location_code": 2840, "language_name": "English", "depth": 3}],
-    }
     results = {}
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        for label, payload in payloads.items():
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        # Check account info / subscription
+        try:
+            r = await client.get("https://api.dataforseo.com/v3/appendix/user_data", headers=headers)
+            ud = r.json()
+            results["account"] = ud.get("tasks", [{}])[0].get("result", [{}])[0]
+        except Exception as e:
+            results["account_error"] = str(e)
+        # Get valid merchant amazon languages
+        try:
+            r = await client.get("https://api.dataforseo.com/v3/merchant/amazon/languages", headers=headers)
+            langs = r.json()
+            lang_list = langs.get("tasks", [{}])[0].get("result", [])
+            results["languages_sample"] = lang_list[:5] if lang_list else langs
+        except Exception as e:
+            results["languages_error"] = str(e)
+        # Try serp/amazon endpoint (the one that works as per old code)
+        for endpoint in [
+            "/v3/merchant/amazon/products/live/advanced",
+            "/v3/serp/amazon/organic/live/advanced",
+            "/v3/merchant/amazon/asin/task_post",
+        ]:
             try:
-                resp = await client.post(base, headers=headers, json=payload)
-                rj = resp.json()
+                r = await client.post(
+                    f"https://api.dataforseo.com{endpoint}",
+                    headers=headers,
+                    json=[{"keyword": "yoga mat", "location_code": 2840, "depth": 3}],
+                )
+                rj = r.json()
                 task = rj.get("tasks", [{}])[0]
-                results[label] = {
-                    "code": task.get("status_code"),
-                    "msg": task.get("status_message"),
-                    "items": len((task.get("result") or [{}])[0].get("items") or []),
-                }
+                results[endpoint] = {"code": task.get("status_code"), "msg": task.get("status_message")}
             except Exception as e:
-                results[label] = {"error": str(e)}
-    return {"configured": True, "deployed_at": "2026-06-27-v4", "results": results}
+                results[endpoint] = {"error": str(e)}
+    return {"configured": True, "deployed_at": "2026-06-27-v5", "login": login, "results": results}
 
 
 @router.post("/research/amazon")
