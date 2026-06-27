@@ -95,7 +95,7 @@ async def debug_dataforseo():
                 resp = await client.post(
                     f"https://api.dataforseo.com{path}",
                     headers={"Authorization": f"Basic {token}", "Content-Type": "application/json"},
-                    json=[{"keyword": "yoga mat", "location_code": 2840, "language_code": "en", "depth": 3}],
+                    json=[{"keyword": "yoga mat", "location_code": 2840, "depth": 3}],
                 )
                 rj = resp.json()
                 task = rj.get("tasks", [{}])[0]
