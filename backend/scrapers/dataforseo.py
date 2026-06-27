@@ -51,11 +51,12 @@ async def search_amazon_products(
         return _stub_results(keyword, marketplace, max_results)
     # ───────────────────────────────────────────────────────────────────
 
-    location_code, _language_code = MARKETPLACE_TO_LOCATION.get(marketplace, (2840, "en"))
+    location_code, language_code = MARKETPLACE_TO_LOCATION.get(marketplace, (2840, "en_US"))
 
     payload = [{
         "keyword":       keyword,
         "location_code": location_code,
+        "language_code": language_code,
         "depth":         max_results,
     }]
 
