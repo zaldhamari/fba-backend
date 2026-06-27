@@ -80,29 +80,37 @@ class OpportunityRequest(BaseModel):
 
 @router.get("/debug/dataforseo")
 async def debug_dataforseo():
-    """Debug endpoint — tests DataForSEO merchant/amazon API and returns raw response."""
-    import os, base64, httpx, datetime
+    """Debug: try multiple merchant/amazon payload variants to find what works."""
+    import os, base64, httpx
     login = os.environ.get("DATAFORSEO_LOGIN", "")
     password = os.environ.get("DATAFORSEO_PASSWORD", "")
-    configured = bool(login and password)
-    if not configured:
-        return {"configured": False, "login_set": bool(login), "password_set": bool(password), "deployed_at": "2026-06-27"}
+    if not (login and password):
+        return {"configured": False}
     token = base64.b64encode(f"{login}:{password}".encode()).decode()
+    headers = {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
+    base = "https://api.dataforseo.com/v3/merchant/amazon/products/live/advanced"
+    payloads = {
+        "minimal": [{"keyword": "yoga mat"}],
+        "with_location_code": [{"keyword": "yoga mat", "location_code": 2840}],
+        "with_language_name": [{"keyword": "yoga mat", "location_code": 2840, "language_name": "English"}],
+        "with_language_code": [{"keyword": "yoga mat", "location_code": 2840, "language_code": "en"}],
+        "full_with_depth": [{"keyword": "yoga mat", "location_code": 2840, "language_name": "English", "depth": 3}],
+    }
     results = {}
-    for path in ["/v3/merchant/amazon/products/live/advanced", "/v3/serp/amazon/organic/live/advanced"]:
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    f"https://api.dataforseo.com{path}",
-                    headers={"Authorization": f"Basic {token}", "Content-Type": "application/json"},
-                    json=[{"keyword": "yoga mat", "location_code": 2840, "depth": 3}],
-                )
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for label, payload in payloads.items():
+            try:
+                resp = await client.post(base, headers=headers, json=payload)
                 rj = resp.json()
                 task = rj.get("tasks", [{}])[0]
-                results[path] = {"http": resp.status_code, "code": task.get("status_code"), "msg": task.get("status_message"), "items": len((task.get("result") or [{}])[0].get("items") or [])}
-        except Exception as e:
-            results[path] = {"error": str(e)}
-    return {"configured": True, "deployed_at": "2026-06-27-v3", "results": results}
+                results[label] = {
+                    "code": task.get("status_code"),
+                    "msg": task.get("status_message"),
+                    "items": len((task.get("result") or [{}])[0].get("items") or []),
+                }
+            except Exception as e:
+                results[label] = {"error": str(e)}
+    return {"configured": True, "deployed_at": "2026-06-27-v4", "results": results}
 
 
 @router.post("/research/amazon")
