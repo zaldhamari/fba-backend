@@ -80,24 +80,29 @@ class OpportunityRequest(BaseModel):
 
 @router.get("/debug/dataforseo")
 async def debug_dataforseo():
-    """Temporary debug endpoint — tests DataForSEO directly and returns raw error."""
-    import os, base64, httpx
+    """Debug endpoint — tests DataForSEO merchant/amazon API and returns raw response."""
+    import os, base64, httpx, datetime
     login = os.environ.get("DATAFORSEO_LOGIN", "")
     password = os.environ.get("DATAFORSEO_PASSWORD", "")
     configured = bool(login and password)
     if not configured:
-        return {"configured": False, "login_set": bool(login), "password_set": bool(password)}
+        return {"configured": False, "login_set": bool(login), "password_set": bool(password), "deployed_at": "2026-06-27"}
     token = base64.b64encode(f"{login}:{password}".encode()).decode()
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                "https://api.dataforseo.com/v3/serp/amazon/organic/live/advanced",
-                headers={"Authorization": f"Basic {token}", "Content-Type": "application/json"},
-                json=[{"keyword": "test", "location_code": 2840, "language_code": "en", "depth": 3, "se_domain": "amazon.com"}],
-            )
-            return {"configured": True, "http_status": resp.status_code, "response": resp.json()}
-    except Exception as e:
-        return {"configured": True, "error": str(e), "error_type": type(e).__name__}
+    results = {}
+    for path in ["/v3/merchant/amazon/products/live/advanced", "/v3/serp/amazon/organic/live/advanced"]:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"https://api.dataforseo.com{path}",
+                    headers={"Authorization": f"Basic {token}", "Content-Type": "application/json"},
+                    json=[{"keyword": "yoga mat", "location_code": 2840, "language_code": "en", "depth": 3}],
+                )
+                rj = resp.json()
+                task = rj.get("tasks", [{}])[0]
+                results[path] = {"http": resp.status_code, "code": task.get("status_code"), "msg": task.get("status_message"), "items": len((task.get("result") or [{}])[0].get("items") or [])}
+        except Exception as e:
+            results[path] = {"error": str(e)}
+    return {"configured": True, "deployed_at": "2026-06-27-v3", "results": results}
 
 
 @router.post("/research/amazon")
