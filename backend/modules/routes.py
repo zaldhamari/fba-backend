@@ -709,6 +709,137 @@ async def freight_estimate(req: FreightRequest):
     )
 
 
+# ─── Freight Intelligence ─────────────────────────────────────────────────────
+
+class FreightIntelRequest(BaseModel):
+    product_name:       Optional[str]   = "Product"
+    unit_cost:          Optional[float] = 5.0
+    units:              Optional[int]   = 200
+    weight_kg_per_unit: Optional[float] = None
+    weight_kg:          Optional[float] = None   # convenience alias
+    length_cm:          Optional[float] = 20.0
+    width_cm:           Optional[float] = 15.0
+    height_cm:          Optional[float] = 10.0
+    marketplace:        Optional[str]   = "US"
+    selling_price:      Optional[float] = None
+    category:           Optional[str]   = None
+
+
+@router.post("/research/freight-intel")
+async def freight_intel(req: FreightIntelRequest):
+    weight  = req.weight_kg_per_unit or req.weight_kg or 0.5
+    units   = req.units or 200
+    freight = estimate_freight(
+        product_name=req.product_name or "Product",
+        marketplace=req.marketplace or "US",
+        units=units,
+        weight_kg_per_unit=weight,
+        length_cm=req.length_cm or 20.0,
+        width_cm=req.width_cm or 15.0,
+        height_cm=req.height_cm or 10.0,
+    )
+    best_mode_key  = freight["recommended"]
+    best_mode      = freight["modes"].get(best_mode_key) or freight["modes"]["air"]
+    rough_freight  = best_mode["total_cost"] if best_mode else 0
+    unit_cost      = req.unit_cost or 0.0
+    investment     = round(unit_cost * units + rough_freight + freight["prep_cost"], 2)
+    landed         = round(unit_cost * units + rough_freight + freight["fba_inbound_est"], 2)
+    fba_fee_est    = round(req.selling_price * 0.15 + 3.22, 2) if req.selling_price else None
+
+    risk_signals: list = [
+        {
+            "type": "info",
+            "label": "Transit",
+            "detail": f"{best_mode['transit_days']} days via {best_mode['mode']}",
+        }
+    ]
+    if units < 100:
+        risk_signals.append({
+            "type": "warning",
+            "label": "Low volume",
+            "detail": "Per-unit freight cost is high for orders under 100 units",
+        })
+    if unit_cost > 0 and req.selling_price and req.selling_price > 0:
+        margin = (req.selling_price - landed / units) / req.selling_price
+        if margin < 0.25:
+            risk_signals.append({
+                "type": "warning",
+                "label": "Thin margin",
+                "detail": f"Estimated net margin ~{margin*100:.0f}% — aim for 30%+",
+            })
+
+    return {
+        "investment_usd":    investment,
+        "landed_cost_usd":   landed,
+        "rough_freight_usd": rough_freight,
+        "fba_inbound_est":   freight["fba_inbound_est"],
+        "prep_cost":         freight["prep_cost"],
+        "modes":             freight["modes"],
+        "risk_signals":      risk_signals,
+        "negotiation_note":  (
+            f"At {units} units via {best_mode['mode']}, aim for a unit cost "
+            f"under ${round(rough_freight / units * 0.5, 2)} to maintain 30%+ net margin."
+        ),
+    }
+
+
+# ─── Supplier Analysis ────────────────────────────────────────────────────────
+
+class AnalyzeSupplierRequest(BaseModel):
+    product_name:  Optional[str]       = None
+    name:          Optional[str]       = None   # supplier name alias
+    platform:      Optional[str]       = "Alibaba"
+    unit_cost:     Optional[float]     = None
+    moq:           Optional[int]       = None
+    selling_price: Optional[float]     = None
+    country:       Optional[str]       = "CN"
+    years:         Optional[int]       = None
+    products:      Optional[List[str]] = None
+    rating:        Optional[float]     = None
+
+
+@router.post("/research/analyze-supplier")
+async def analyze_supplier(req: AnalyzeSupplierRequest):
+    supplier_name = req.name or req.product_name or "Supplier"
+    score = 70
+    if req.years and req.years >= 3:
+        score += 10
+    if req.rating and req.rating >= 4.5:
+        score += 10
+    if req.moq and req.moq <= 200:
+        score += 5
+    score = min(score, 100)
+
+    flags: list = []
+    if req.years and req.years < 2:
+        flags.append("New supplier — request samples before committing")
+    if req.moq and req.moq > 1000:
+        flags.append("High MOQ — negotiate down or split with another buyer")
+
+    margin = None
+    if req.unit_cost and req.selling_price:
+        landed_unit = req.unit_cost * 1.4
+        margin = round((req.selling_price - landed_unit) / req.selling_price * 100, 1)
+
+    moq_units  = req.moq or 200
+    investment = round(req.unit_cost * moq_units, 2)       if req.unit_cost else None
+    landed     = round(req.unit_cost * 1.4 * moq_units, 2) if req.unit_cost else None
+    fba_fee    = round(req.selling_price * 0.15 + 3.22, 2)  if req.selling_price else None
+
+    return {
+        "supplier":              supplier_name,
+        "platform":              req.platform,
+        "score":                 score,
+        "recommendation":        "proceed" if score >= 70 else "caution",
+        "flags":                 flags,
+        "estimated_margin_pct":  margin,
+        "investment_usd":        investment,
+        "landed_cost_usd":       landed,
+        "rough_freight_usd":     None,
+        "fba_fee_est_usd":       fba_fee,
+    }
+
+
 # ─── Keepa Product Data ───────────────────────────────────────────────────────
 
 # Keepa domain codes (US default; extend as needed)

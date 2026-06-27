@@ -1,0 +1,22 @@
+-- Migration 0002: drop the old increment_keepa_free_usage(text) overload
+--
+-- APPLY ONLY AFTER the new backend is fully deployed and healthy.
+-- See migration 0001 for full context.
+--
+-- DEPLOY ORDER (mandatory)
+--   1. Migration 0001 applied ✓  (adds two-arg overload)
+--   2. New Python backend deployed and verified healthy ✓
+--   3. Apply THIS migration (0002) — removes old single-arg signature.
+--
+-- DO NOT apply this migration before step 2.  Until the new backend is live,
+-- the old backend still calls increment_keepa_free_usage(text) and will 500
+-- if that signature is gone.
+--
+-- SAFETY
+--   IF EXISTS means this is a no-op if already dropped (safe to re-run).
+--
+-- HOW TO APPLY
+--   Option A — Supabase dashboard: Database → SQL Editor → paste and run.
+--   Option B — psql: psql "$DATABASE_URL" -f migrations/0002_drop_old_increment_fn.sql
+
+DROP FUNCTION IF EXISTS increment_keepa_free_usage(text);

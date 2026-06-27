@@ -8,6 +8,10 @@ def score_opportunity(
     trend_direction: str,
     weight_lbs: float,
     category: str,
+    # ── Keepa signal penalties (Prompt 4) ─────────────────────────────────────
+    bsr_declining: bool = False,   # BSR trend is getting worse
+    spike_flag:    bool = False,   # suspiciously good recent rank vs. history
+    price_falling: bool = False,   # price trend is downward (race-to-the-bottom)
 ) -> dict:
     # Calculate real profit first
     fba = calculate_fba_fees(
@@ -20,7 +24,7 @@ def score_opportunity(
 
     profit = fba["profit"]
     margin = fba["margin_pct"]
-    roi = fba["roi_pct"]
+    roi    = fba["roi_pct"]
 
     # Score components (each out of 100)
     # 1. Profit margin score
@@ -47,7 +51,7 @@ def score_opportunity(
 
     # 3. Trend score
     trend_scores = {"Rising": 100, "Stable": 60, "Declining": 20, "No data": 50, "Unknown": 50}
-    trend_score = trend_scores.get(trend_direction, 50)
+    trend_score  = trend_scores.get(trend_direction, 50)
 
     # 4. Price point score (sweet spot $15-$60)
     if 15 <= amazon_price <= 60:
@@ -57,14 +61,35 @@ def score_opportunity(
     else:
         price_score = 30
 
-    # Weighted total
+    # Weighted base score
     total = (
         margin_score * 0.40 +
-        comp_score * 0.30 +
-        trend_score * 0.20 +
-        price_score * 0.10
+        comp_score   * 0.30 +
+        trend_score  * 0.20 +
+        price_score  * 0.10
     )
-    total = round(min(100, max(0, total)), 1)
+
+    # ── Keepa signal penalties ────────────────────────────────────────────────
+    # These penalties apply AFTER the base score so they can never be hidden by
+    # a strong margin or low review count. The protective philosophy: a real
+    # risk signal must visibly move the score.
+    signal_penalties = 0
+    signal_notes     = []
+
+    if bsr_declining:
+        signal_penalties += 10
+        signal_notes.append("BSR trend is worsening — rank is declining over time")
+    if spike_flag:
+        signal_penalties += 8
+        signal_notes.append(
+            "BSR spike detected — recent rank far better than historical median; "
+            "may be a temporary demand event, not durable"
+        )
+    if price_falling:
+        signal_penalties += 7
+        signal_notes.append("Price trend is falling — possible race-to-the-bottom category")
+
+    total = round(min(100, max(0, total - signal_penalties)), 1)
 
     # Grade
     if total >= 75:
@@ -84,7 +109,6 @@ def score_opportunity(
         label = "Avoid"
         color = "red"
 
-    # Action recommendation
     if total >= 75:
         action = "This looks like a solid product to pursue. Order samples and validate."
     elif total >= 55:
@@ -95,20 +119,22 @@ def score_opportunity(
         action = "Not recommended. Low profit and/or very saturated market."
 
     return {
-        "score": total,
-        "grade": grade,
-        "label": label,
-        "color": color,
+        "score":  total,
+        "grade":  grade,
+        "label":  label,
+        "color":  color,
         "action": action,
         "breakdown": {
-            "margin_score": round(margin_score, 1),
-            "competition_score": round(comp_score, 1),
-            "trend_score": round(trend_score, 1),
-            "price_score": round(price_score, 1),
+            "margin_score":      round(margin_score, 1),
+            "competition_score": round(comp_score,   1),
+            "trend_score":       round(trend_score,  1),
+            "price_score":       round(price_score,  1),
+            "signal_penalty":    signal_penalties,
         },
         "profit_summary": {
-            "profit": profit,
+            "profit":     profit,
             "margin_pct": margin,
-            "roi_pct": roi,
+            "roi_pct":    roi,
         },
+        "signal_notes": signal_notes,
     }

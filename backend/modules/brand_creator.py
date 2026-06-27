@@ -165,14 +165,38 @@ def _generate_names(product_type: str, keywords: list[str], style: str, count: i
 
 
 def _generate_logo_svg(brand_name: str, style: str) -> str:
-    COLOR_SCHEMES = {
-        "modern": {"bg": "#1a1a2e", "accent": "#e94560", "text": "#ffffff"},
-        "premium": {"bg": "#2c2c2c", "accent": "#d4af37", "text": "#ffffff"},
-        "playful": {"bg": "#ff6b6b", "accent": "#ffd93d", "text": "#ffffff"},
-        "minimal": {"bg": "#ffffff", "accent": "#000000", "text": "#000000"},
-    }
-    colors = COLOR_SCHEMES.get(style, COLOR_SCHEMES["modern"])
-    initials = "".join(w[0].upper() for w in brand_name.split()[:2]) or brand_name[:2].upper()
+    return _generate_logo_svg_rich(brand_name, style, None)
+
+
+# Palette overrides: map app color_palette token → (bg, accent, text)
+_PALETTE_OVERRIDES: dict[str, dict[str, str]] = {
+    "blue":   {"bg": "#1e3a8a", "accent": "#3b82f6", "text": "#ffffff"},
+    "green":  {"bg": "#064e3b", "accent": "#10b981", "text": "#ffffff"},
+    "purple": {"bg": "#2e1065", "accent": "#a855f7", "text": "#ffffff"},
+    "warm":   {"bg": "#78350f", "accent": "#f59e0b", "text": "#ffffff"},
+    "dark":   {"bg": "#0f172a", "accent": "#e2e8f0", "text": "#ffffff"},
+    "earth":  {"bg": "#292524", "accent": "#d97706", "text": "#f5f5f4"},
+}
+
+_STYLE_DEFAULTS: dict[str, dict[str, str]] = {
+    "modern":  {"bg": "#1a1a2e", "accent": "#e94560", "text": "#ffffff"},
+    "premium": {"bg": "#2c2c2c", "accent": "#d4af37", "text": "#ffffff"},
+    "playful": {"bg": "#ff6b6b", "accent": "#ffd93d", "text": "#ffffff"},
+    "minimal": {"bg": "#ffffff", "accent": "#000000", "text": "#000000"},
+    "luxury":  {"bg": "#1c1c1e", "accent": "#c9a84c", "text": "#f5f5f0"},
+    "eco":     {"bg": "#1a3c34", "accent": "#4ade80", "text": "#ffffff"},
+    "bold":    {"bg": "#1e1e2e", "accent": "#f97316", "text": "#ffffff"},
+}
+
+
+def _generate_logo_svg_rich(brand_name: str, style: str, color_palette: str | None) -> str:
+    colors = (
+        _PALETTE_OVERRIDES.get(color_palette or "")
+        or _STYLE_DEFAULTS.get(style)
+        or _STYLE_DEFAULTS["modern"]
+    )
+
+    initials   = "".join(w[0].upper() for w in brand_name.split()[:2]) or brand_name[:2].upper()
     short_name = brand_name[:14] + ("…" if len(brand_name) > 14 else "")
 
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100" viewBox="0 0 300 100">
@@ -228,7 +252,19 @@ def _generate_listing_copy(product_type: str, brand_name: str, keywords: list[st
     }
 
 
-def generate_brand(product_type: str, keywords: list[str], style: str = "modern", brand_name: str = "") -> dict:
+def generate_brand(
+    product_type:    str,
+    keywords:        list[str],
+    style:           str            = "modern",
+    brand_name:      str            = "",
+    brand_direction: str | None     = None,
+    color_palette:   str | None     = None,
+    font_style:      str | None     = None,
+    packaging_mood:  str | None     = None,
+    tagline:         str | None     = None,
+    target_audience: str | None     = None,
+    brand_tone:      str | None     = None,
+) -> dict:
     style = style if style in PREFIXES else "modern"
 
     auto_keywords = generate_keywords(product_type)
@@ -241,14 +277,24 @@ def generate_brand(product_type: str, keywords: list[str], style: str = "modern"
         name_options = _generate_names(product_type, merged_keywords, style, count=5)
         primary_name = name_options[0]
 
-    tagline = random.choice(TAGLINES[style])
-    logo_svg = _generate_logo_svg(primary_name, style)
+    chosen_tagline = tagline.strip() if tagline and tagline.strip() else random.choice(TAGLINES[style])
+    logo_svg = _generate_logo_svg_rich(primary_name, style, color_palette)
+
+    # Assemble brand context for AI prompts
+    brand_context = {
+        "brand_direction": brand_direction,
+        "color_palette":   color_palette,
+        "font_style":      font_style,
+        "packaging_mood":  packaging_mood,
+        "target_audience": target_audience,
+        "brand_tone":      brand_tone,
+    }
 
     # Use AI for listing copy when available
     try:
         from backend.modules.ai_client import AI_AVAILABLE, chat_json
         if AI_AVAILABLE:
-            listing = _ai_listing_copy(product_type, primary_name, merged_keywords, style)
+            listing = _ai_listing_copy(product_type, primary_name, merged_keywords, style, brand_context)
         else:
             listing = _generate_listing_copy(product_type, primary_name, merged_keywords)
     except Exception:
@@ -257,7 +303,7 @@ def generate_brand(product_type: str, keywords: list[str], style: str = "modern"
     return {
         "brand_name": primary_name,
         "name_options": name_options,
-        "tagline": tagline,
+        "tagline": chosen_tagline,
         "style": style,
         "logo_svg": logo_svg,
         "listing": listing,
@@ -265,17 +311,29 @@ def generate_brand(product_type: str, keywords: list[str], style: str = "modern"
     }
 
 
-def _ai_listing_copy(product_type: str, brand_name: str, keywords: list[str], style: str) -> dict:
+def _ai_listing_copy(
+    product_type:  str,
+    brand_name:    str,
+    keywords:      list[str],
+    style:         str,
+    brand_context: dict | None = None,
+) -> dict:
     from backend.modules.ai_client import chat_json
     kw_str = ", ".join(keywords[:10])
+
+    ctx = brand_context or {}
+    ctx_lines = [f"- {k}: {v}" for k, v in ctx.items() if v]
+    ctx_block = "\nBrand context:\n" + "\n".join(ctx_lines) if ctx_lines else ""
+
     system = (
         "You are an expert Amazon copywriter. Write high-converting, SEO-optimised listing copy. "
-        "Follow Amazon's style guidelines. Be specific and benefit-focused, not generic."
+        "Follow Amazon's style guidelines. Be specific and benefit-focused, not generic. "
+        "Tailor tone, vocabulary, and angle to the brand context provided."
     )
     user = f"""Product: {product_type}
 Brand: {brand_name}
 Style: {style}
-Top keywords: {kw_str}
+Top keywords: {kw_str}{ctx_block}
 
 Return JSON:
 {{
@@ -291,10 +349,9 @@ Return JSON:
   "backend_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5", "keyword6", "keyword7", "keyword8"]
 }}"""
 
-    result = chat_json(system, user, max_tokens=700)
-    # Enforce field shapes
-    result["title"] = str(result.get("title", ""))[:200]
-    result["bullet_points"] = list(result.get("bullet_points", []))[:5]
-    result["description"] = str(result.get("description", ""))
+    result = chat_json(system, user, max_tokens=800)
+    result["title"]            = str(result.get("title", ""))[:200]
+    result["bullet_points"]    = list(result.get("bullet_points", []))[:5]
+    result["description"]      = str(result.get("description", ""))
     result["backend_keywords"] = list(result.get("backend_keywords", []))[:10]
     return result
