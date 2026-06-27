@@ -80,11 +80,16 @@ async def search_amazon_products(
 
     products = []
     for item in items:
-        if item.get("type") not in ("amazon_serp_element", "amazon_product_info"):
+        # Skip non-product items (ads, banners, etc.) — keep all amazon product types
+        item_type = item.get("type", "")
+        if not item_type or item_type in ("amazon_paid", "amazon_sponsored"):
             continue
-        price = item.get("price_from") or item.get("price")
-        reviews = item.get("reviews_count") or item.get("rating", {}).get("votes_count")
-        rating_val = (item.get("rating") or {}).get("value") if isinstance(item.get("rating"), dict) else item.get("rating")
+        if not item.get("title"):
+            continue
+        price = item.get("price_from") or item.get("price") or (item.get("price_info") or {}).get("current")
+        reviews = item.get("reviews_count") or item.get("reviews_info", {}).get("reviews_count")
+        rating_raw = item.get("rating")
+        rating_val = rating_raw.get("value") if isinstance(rating_raw, dict) else rating_raw
         products.append({
             "title":        item.get("title", ""),
             "price":        price,
@@ -98,6 +103,7 @@ async def search_amazon_products(
             "competition":  _competition_label(reviews),
             "opportunity":  _opportunity_label(price, reviews),
             "source":       "dataforseo",
+            "_type":        item_type,
         })
 
     return products[:max_results]
