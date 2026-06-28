@@ -2,11 +2,18 @@ import asyncio
 from pytrends.request import TrendReq
 
 
+_TRENDS_TIMEOUT = 3.5  # seconds — Google often rate-limits; bail fast
+
 async def get_trends(keyword: str) -> dict:
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _fetch_trends, keyword)
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _fetch_trends, keyword),
+            timeout=_TRENDS_TIMEOUT,
+        )
         return result
+    except asyncio.TimeoutError:
+        return {"error": "timeout", "interest_score": None, "trend_direction": "Unknown", "related_queries": []}
     except Exception as e:
         return {"error": str(e), "interest_score": None, "trend_direction": "Unknown", "related_queries": []}
 
