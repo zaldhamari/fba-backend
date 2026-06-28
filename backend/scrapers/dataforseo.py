@@ -42,7 +42,7 @@ def _is_configured() -> bool:
 async def search_amazon_products(
     keyword: str,
     marketplace: str = "US",
-    max_results: int = 20,
+    max_results: int = 10,
 ) -> list[dict]:
     """
     Returns real Amazon product listings via DataForSEO SERP API.
@@ -64,7 +64,7 @@ async def search_amazon_products(
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         resp = await client.post(
-            f"{DATAFORSEO_BASE}/merchant/amazon/products/live/advanced",
+            f"{DATAFORSEO_BASE}/serp/amazon/organic/live/advanced",
             headers={
                 "Authorization": _auth_header(),
                 "Content-Type":  "application/json",
@@ -84,7 +84,7 @@ async def search_amazon_products(
     for item in items:
         # Skip paid/sponsored slots; merchant API returns type "amazon_serp"
         item_type = item.get("type", "")
-        if item_type in ("amazon_paid", "amazon_sponsored"):
+        if "paid" in item_type.lower() or "sponsored" in item_type.lower():
             continue
         if not item.get("title"):
             continue
