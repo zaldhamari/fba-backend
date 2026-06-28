@@ -1,6 +1,7 @@
 """
 Review Analyzer — extracts pain points and opportunities from product reviews.
-Uses AI when available; falls back to a category-based knowledge base.
+Uses real Amazon reviews via DataForSEO when ASIN is provided;
+falls back to AI knowledge or category-based knowledge base.
 """
 from backend.modules.ai_client import chat_json, AI_AVAILABLE
 
@@ -37,13 +38,49 @@ DEFAULT_PAIN_POINTS = {
 }
 
 
-def analyze_reviews(product_name: str, category: str, sample_reviews: list[str] = None) -> dict:
+async def fetch_real_reviews(asin: str, marketplace: str = "US") -> tuple[list[str], list[str], int]:
+    """Fetch real reviews from DataForSEO. Returns (negative_texts, positive_texts, total_count)."""
+    if not asin:
+        return [], [], 0
+    try:
+        from backend.scrapers.dataforseo_reviews import fetch_amazon_reviews, split_reviews_by_sentiment
+        reviews = await fetch_amazon_reviews(asin=asin, marketplace=marketplace, max_results=50)
+        neg, pos = split_reviews_by_sentiment(reviews)
+        return neg, pos, len(reviews)
+    except Exception:
+        return [], [], 0
+
+
+async def analyze_reviews(
+    product_name: str,
+    category: str,
+    sample_reviews: list[str] = None,
+    asin: str = None,
+    marketplace: str = "US",
+) -> dict:
+    neg_reviews: list[str] = []
+    pos_reviews: list[str] = []
+    review_count: int = 0
+
+    if asin:
+        neg_reviews, pos_reviews, review_count = await fetch_real_reviews(asin, marketplace)
+
+    # Combine: real negative reviews + any caller-supplied reviews
+    all_negative = neg_reviews + (sample_reviews or [])
+
     if AI_AVAILABLE:
-        return _ai_analyze(product_name, category, sample_reviews or [])
+        return _ai_analyze(product_name, category, all_negative, pos_reviews, review_count, data_source="real" if asin and review_count else "ai")
     return _knowledge_base_analyze(product_name, category)
 
 
-def _ai_analyze(product_name: str, category: str, sample_reviews: list[str]) -> dict:
+def _ai_analyze(
+    product_name: str,
+    category: str,
+    negative_reviews: list[str],
+    positive_reviews: list[str] = None,
+    review_count: int = 0,
+    data_source: str = "ai",
+) -> dict:
     from backend.modules.ai_client import chat_json
     system = (
         "You are an expert Amazon FBA product analyst helping sellers find improvement opportunities. "
@@ -51,9 +88,12 @@ def _ai_analyze(product_name: str, category: str, sample_reviews: list[str]) -> 
         "Be specific to the exact product — never give generic category-level answers."
     )
 
-    if sample_reviews:
-        reviews_text = "\n".join(f"- {r}" for r in sample_reviews[:20])
-        review_section = f"Customer reviews:\n{reviews_text}"
+    if negative_reviews or positive_reviews:
+        neg_text = "\n".join(f"- {r}" for r in (negative_reviews or [])[:20])
+        pos_text = "\n".join(f"- {r}" for r in (positive_reviews or [])[:10])
+        review_section = f"Negative reviews ({len(negative_reviews or [])} total):\n{neg_text}\n\nPositive reviews ({len(positive_reviews or [])} total):\n{pos_text}"
+        if review_count:
+            review_section = f"Based on {review_count} real Amazon reviews:\n" + review_section
     else:
         review_section = (
             "No sample reviews provided. Use your knowledge of this specific product's Amazon listing history, "
@@ -77,7 +117,8 @@ Analyze this specific product and return JSON with product-specific insights (no
 
     try:
         result = chat_json(system, user, max_tokens=600)
-        result["source"] = "ai"
+        result["source"] = data_source
+        result["review_count"] = review_count
         return result
     except Exception:
         return _knowledge_base_analyze(product_name, category)
@@ -107,4 +148,5 @@ def _knowledge_base_analyze(product_name: str, category: str) -> dict:
             f"{product_name} + complementary accessory",
         ],
         "source": "knowledge_base",
+        "review_count": 0,
     }
