@@ -51,6 +51,52 @@ async def fetch_real_reviews(asin: str, marketplace: str = "US") -> tuple[list[s
         return [], [], 0
 
 
+async def _resolve_keyword_to_product(keyword: str, marketplace: str = "US") -> dict:
+    """
+    Search DataForSEO for the keyword and return the top real product's
+    ASIN, title, and category. Returns {} if DataForSEO is not configured
+    or no real ASIN is found.
+    """
+    try:
+        from backend.scrapers.dataforseo import search_amazon_products, _is_configured
+        if not _is_configured():
+            return {}
+        products = await search_amazon_products(keyword, marketplace, max_results=5)
+        for p in products:
+            asin = p.get("asin", "")
+            # Skip MD5-hashed synthetic ASINs (prefix "SX") — those aren't real
+            if asin and not asin.startswith("SX") and not asin.startswith("B0STUB"):
+                return {
+                    "asin":     asin,
+                    "title":    p.get("title") or keyword,
+                    "category": _guess_category_from_title(p.get("title") or keyword),
+                }
+    except Exception:
+        pass
+    return {}
+
+
+def _guess_category_from_title(title: str) -> str:
+    import re
+    hints = [
+        (r"\bblender|juicer|kettle|toaster|air fryer|coffee\b", "Kitchen"),
+        (r"\bheadphone|earbud|speaker|bluetooth\b", "Electronics"),
+        (r"\byoga|fitness|dumbbell|resistance band\b", "Sports"),
+        (r"\bdog|cat|pet\b", "Pet Supplies"),
+        (r"\bbaby|infant|toddler\b", "Baby"),
+        (r"\bvitamin|supplement|protein\b", "Health"),
+        (r"\bskin|face|moisturizer|serum|shampoo\b", "Beauty"),
+        (r"\btoy|game|puzzle\b", "Toys"),
+        (r"\bcamping|hiking|backpack|tent\b", "Outdoor"),
+        (r"\bdesk|chair|lamp|shelf|storage\b", "Home"),
+    ]
+    t = title.lower()
+    for pattern, cat in hints:
+        if re.search(pattern, t, re.IGNORECASE):
+            return cat
+    return "General"
+
+
 async def analyze_reviews(
     product_name: str,
     category: str,
@@ -61,6 +107,18 @@ async def analyze_reviews(
     neg_reviews: list[str] = []
     pos_reviews: list[str] = []
     review_count: int = 0
+
+    # If no ASIN, try to resolve one from DataForSEO product search.
+    # This makes Recon work with keyword input, not just raw ASINs.
+    if not asin:
+        resolved = await _resolve_keyword_to_product(product_name, marketplace)
+        if resolved:
+            asin = resolved["asin"]
+            # Use real product title/category from DataForSEO if caller gave us a generic name
+            if resolved.get("title") and resolved["title"] != product_name:
+                product_name = resolved["title"]
+            if resolved.get("category") and category in ("all", "General", ""):
+                category = resolved["category"]
 
     if asin:
         neg_reviews, pos_reviews, review_count = await fetch_real_reviews(asin, marketplace)

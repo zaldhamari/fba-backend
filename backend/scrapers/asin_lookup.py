@@ -82,13 +82,62 @@ def _extract_title(html: str) -> str | None:
     return None
 
 
+async def _lookup_via_dataforseo(asin: str) -> dict | None:
+    """
+    Resolve ASIN to title/category using DataForSEO merchant product endpoint.
+    Works from datacenter IPs (unlike Amazon page scraping).
+    Returns None if DataForSEO is not configured or the request fails.
+    """
+    try:
+        from backend.scrapers.dataforseo import _is_configured, _auth_header, DATAFORSEO_BASE, MARKETPLACE_TO_LOCATION
+        if not _is_configured():
+            return None
+        location_code, language_code = MARKETPLACE_TO_LOCATION.get("US", (2840, "en_US"))
+        payload = [{"asin": asin.upper(), "location_code": location_code, "language_code": language_code}]
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{DATAFORSEO_BASE}/merchant/amazon/products/live/advanced",
+                headers={"Authorization": _auth_header(), "Content-Type": "application/json"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        items = (
+            data.get("tasks", [{}])[0]
+                .get("result", [{}])[0]
+                .get("items", [])
+        ) or []
+        product = next((i for i in items if i.get("asin", "").upper() == asin.upper()), items[0] if items else None)
+        if not product or not product.get("title"):
+            return None
+        categories = product.get("categories") or []
+        category = categories[0].get("name") if categories else _guess_category(product["title"])
+        return {
+            "asin":     asin,
+            "title":    product["title"],
+            "category": category,
+            "url":      f"https://www.amazon.com/dp/{asin}",
+            "source":   "dataforseo",
+        }
+    except Exception:
+        return None
+
+
 async def lookup_asin(asin: str) -> dict:
     """
     Returns:
         { asin, title, category, url, source }
-    source is "scraped" if Amazon returned the page, "fallback" if blocked.
+    Tries DataForSEO first (reliable from datacenter), then Amazon page scraping,
+    then falls back to the raw ASIN as name.
     """
     url = f"https://www.amazon.com/dp/{asin}"
+
+    # 1. DataForSEO — works reliably from Railway's datacenter IP
+    result = await _lookup_via_dataforseo(asin)
+    if result:
+        return result
+
+    # 2. Amazon page scrape — often bot-gated on datacenter IPs
     try:
         async with httpx.AsyncClient(
             headers=MOBILE_HEADERS,
@@ -102,7 +151,6 @@ async def lookup_asin(asin: str) -> dict:
 
         html = r.text
 
-        # Detect bot gate / captcha
         if any(s in html for s in ["Robot Check", "api-services-support", "captcha", "Type the characters"]):
             raise ValueError("Bot gate")
 
@@ -114,5 +162,4 @@ async def lookup_asin(asin: str) -> dict:
         return {"asin": asin, "title": title, "category": category, "url": url, "source": "scraped"}
 
     except Exception:
-        # Graceful fallback — return ASIN as name so AI analysis can still run
         return {"asin": asin, "title": asin, "category": "General", "url": url, "source": "fallback"}
