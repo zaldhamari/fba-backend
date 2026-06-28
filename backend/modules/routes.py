@@ -494,18 +494,23 @@ class ReviewRequest(BaseModel):
     product_name: str
     category: Optional[str] = "all"
     sample_reviews: Optional[List[str]] = []
+    asin: Optional[str] = None
+    marketplace: Optional[str] = "US"
 
 
 @router.post("/ai/reviews")
 async def review_analysis(req: ReviewRequest):
-    _key = f"reviews:{req.product_name.lower().strip()}:{(req.category or 'all').lower()}"
+    asin = (req.asin or "").strip().upper() or None
+    _key = f"reviews:{asin or req.product_name.lower().strip()}:{(req.category or 'all').lower()}"
     cached = _ai_cache_get(_key)
     if cached is not None:
         return cached
-    result = analyze_reviews(
+    result = await analyze_reviews(
         product_name=req.product_name,
         category=req.category or "all",
         sample_reviews=req.sample_reviews or [],
+        asin=asin,
+        marketplace=req.marketplace or "US",
     )
     _ai_cache_set(_key, result)
     return result
