@@ -64,7 +64,7 @@ async def search_amazon_products(
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         resp = await client.post(
-            f"{DATAFORSEO_BASE}/serp/amazon/organic/live/advanced",
+            f"{DATAFORSEO_BASE}/merchant/amazon/products/live/advanced",
             headers={
                 "Authorization": _auth_header(),
                 "Content-Type":  "application/json",
@@ -84,7 +84,7 @@ async def search_amazon_products(
     for item in items:
         # Skip paid/sponsored slots; merchant API returns type "amazon_serp"
         item_type = item.get("type", "")
-        if "paid" in item_type.lower() or "sponsored" in item_type.lower():
+        if item_type in ("amazon_paid", "amazon_sponsored"):
             continue
         if not item.get("title"):
             continue
