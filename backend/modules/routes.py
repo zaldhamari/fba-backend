@@ -28,6 +28,23 @@ from backend.modules.freight_estimator import estimate_freight
 from backend.modules.analytics_store import store_events
 from backend.modules.product_physical import estimate_physical_attributes
 
+# ── AI response cache (30-min TTL — recon AI calls are expensive) ────────────
+import time as _time
+_AI_CACHE: dict = {}
+_AI_CACHE_TTL = 1800  # 30 minutes
+
+def _ai_cache_get(key: str):
+    entry = _AI_CACHE.get(key)
+    if entry and _time.time() < entry[0]:
+        return entry[1]
+    return None
+
+def _ai_cache_set(key: str, result) -> None:
+    _AI_CACHE[key] = (_time.time() + _AI_CACHE_TTL, result)
+    if len(_AI_CACHE) > 500:
+        oldest = min(_AI_CACHE.items(), key=lambda x: x[1][0])
+        _AI_CACHE.pop(oldest[0], None)
+
 router = APIRouter()
 
 
@@ -128,7 +145,7 @@ async def amazon_research(req: ProductSearchRequest, user_id: str = None):
     # Use orchestrator — run DataForSEO + Google Trends in parallel (saves 2-4s)
     import asyncio as _asyncio
     result, trends = await _asyncio.gather(
-        search_amazon_products(req.keyword, req.category or "all", max_results=15),
+        search_amazon_products(req.keyword, req.category or "all", max_results=10),
         get_trends(req.keyword),
     )
     response = {
@@ -481,11 +498,17 @@ class ReviewRequest(BaseModel):
 
 @router.post("/ai/reviews")
 async def review_analysis(req: ReviewRequest):
-    return analyze_reviews(
+    _key = f"reviews:{req.product_name.lower().strip()}:{(req.category or 'all').lower()}"
+    cached = _ai_cache_get(_key)
+    if cached is not None:
+        return cached
+    result = analyze_reviews(
         product_name=req.product_name,
         category=req.category or "all",
         sample_reviews=req.sample_reviews or [],
     )
+    _ai_cache_set(_key, result)
+    return result
 
 
 # ─── Differentiation Generator ───────────────────────────────────────────────
@@ -498,11 +521,17 @@ class DiffRequest(BaseModel):
 
 @router.post("/ai/differentiate")
 async def differentiate(req: DiffRequest):
-    return generate_differentiation(
+    _key = f"diff:{req.product_name.lower().strip()}:{(req.category or 'all').lower()}"
+    cached = _ai_cache_get(_key)
+    if cached is not None:
+        return cached
+    result = generate_differentiation(
         product_name=req.product_name,
         category=req.category or "all",
         top_complaints=req.top_complaints or [],
     )
+    _ai_cache_set(_key, result)
+    return result
 
 
 # ─── Profit Simulator ────────────────────────────────────────────────────────
@@ -665,7 +694,7 @@ async def niche_research(req: NicheResearchRequest, user_id: str = None):
 
     marketplace = req.marketplace or "US"
     # Use orchestrator: auto-routes through DataForSEO → AI → Keyword → Stub
-    search_result = await search_amazon_products(req.keyword, marketplace, max_results=20)
+    search_result = await search_amazon_products(req.keyword, marketplace, max_results=10)
     products = search_result.get("products", [])
     data_source = search_result.get("data_source", "unknown")
 
