@@ -88,10 +88,27 @@ async def search_amazon_products(
             continue
         if not item.get("title"):
             continue
-        price = item.get("price_from") or item.get("price") or (item.get("price_info") or {}).get("current")
-        reviews = item.get("reviews_count") or item.get("reviews_info", {}).get("reviews_count")
+        # Price: DataForSEO uses several field names depending on listing type
+        price_info_raw = item.get("price_info") or {}
+        price = (
+            item.get("price_from")
+            or item.get("price")
+            or price_info_raw.get("current")
+            or price_info_raw.get("price")
+            or item.get("price_to")      # max of range is better than nothing
+            or price_info_raw.get("regular_price")
+        )
+        # Rating: returned as {"value": 4.5, "votes_count": 1234} or plain float
         rating_raw = item.get("rating")
         rating_val = rating_raw.get("value") if isinstance(rating_raw, dict) else rating_raw
+        votes_count = rating_raw.get("votes_count") if isinstance(rating_raw, dict) else None
+        # Reviews: try several field names; fall back to votes_count from rating dict
+        reviews = (
+            item.get("reviews_count")
+            or (item.get("reviews_info") or {}).get("reviews_count")
+            or item.get("rating_count")
+            or votes_count
+        )
         # Extract ASIN: prefer explicit field, then parse from URL, then hash title
         asin = item.get("asin", "") or ""
         if not asin:
