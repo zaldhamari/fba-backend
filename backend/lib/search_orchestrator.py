@@ -10,10 +10,30 @@ This makes it trivial to add new providers, swap priorities, or change fallback 
 
 from typing import Dict, Any, Optional
 import logging
+import time
 
 from .data_source_router import get_router
 
 logger = logging.getLogger(__name__)
+
+# ── Backend search cache (TTL: 10 min) ────────────────────────────────────────
+# Skips DataForSEO/Alibaba calls entirely for repeated searches.
+# Resets on Railway restart (~every deployment), which is fine.
+_SEARCH_CACHE_TTL = 600  # seconds
+_search_cache: Dict[str, tuple] = {}  # key → (expires_at, result)
+
+def _cache_get(key: str):
+    entry = _search_cache.get(key)
+    if entry and time.time() < entry[0]:
+        return entry[1]
+    return None
+
+def _cache_set(key: str, result) -> None:
+    _search_cache[key] = (time.time() + _SEARCH_CACHE_TTL, result)
+    # Evict oldest if over 200 entries
+    if len(_search_cache) > 200:
+        oldest = min(_search_cache.items(), key=lambda x: x[1][0])
+        _search_cache.pop(oldest[0], None)
 
 
 async def search_amazon_products(
@@ -45,19 +65,29 @@ async def search_amazon_products(
         "total_results": 42,
     }
     """
+    cache_key = f"amazon:{keyword.lower().strip()}:{marketplace}:{max_results}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        logger.info(f"[cache HIT] {cache_key}")
+        return cached
+
     router = get_router()
 
     try:
         result = await router.search_products(keyword, marketplace, max_results)
 
         # Enrich response with metadata
-        return {
+        response = {
             **result,
             "keyword": keyword,
             "marketplace": marketplace,
             "total_results": len(result.get("products", [])),
             "request_id": f"{keyword}-{marketplace}",  # For debugging/tracking
         }
+        # Only cache successful results (not errors)
+        if result.get("data_source") != "error":
+            _cache_set(cache_key, response)
+        return response
     except Exception as e:
         logger.error(f"search_amazon_products failed: {str(e)}")
         return {
@@ -102,6 +132,12 @@ async def search_suppliers(
         "total_suppliers": 23,
     }
     """
+    cache_key = f"suppliers:{product.lower().strip()}:{marketplace}:{max_unit_price}:{max_results}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        logger.info(f"[cache HIT] {cache_key}")
+        return cached
+
     router = get_router()
 
     try:
@@ -110,7 +146,7 @@ async def search_suppliers(
         )
 
         # Enrich response
-        return {
+        response = {
             **result,
             "product": product,
             "marketplace": marketplace,
@@ -120,6 +156,9 @@ async def search_suppliers(
                 "max_moq": max_moq,
             },
         }
+        if result.get("data_source") != "error":
+            _cache_set(cache_key, response)
+        return response
     except Exception as e:
         logger.error(f"search_suppliers failed: {str(e)}")
         return {
@@ -130,6 +169,8 @@ async def search_suppliers(
             "total_suppliers": 0,
             "error": str(e),
         }
+
+
 
 
 async def get_data_sources_status() -> Dict[str, Any]:
