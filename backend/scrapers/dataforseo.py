@@ -114,6 +114,28 @@ async def search_amazon_products(
         )
         is_best_seller   = bool(item.get("is_best_seller"))
         is_amazon_choice = bool(item.get("is_amazon_choice"))
+
+        # BSR — first entry is the primary category rank
+        bsr_list     = item.get("bestseller_rank") or []
+        bsr_entry    = bsr_list[0] if bsr_list else {}
+        bsr_rank     = bsr_entry.get("rank")
+        bsr_category = bsr_entry.get("category")
+
+        # Price discount (Amazon's strike-through / coupon)
+        price_info   = item.get("price_info") or {}
+        discount_pct = price_info.get("savings_percent")
+        list_price   = price_info.get("list_price")
+
+        # Real product category from DataForSEO breadcrumb
+        categories    = item.get("categories") or []
+        real_category = categories[0].get("name") if categories else None
+
+        # Whether Amazon itself sells this listing (vs third-party FBA seller)
+        sold_by_amazon = isinstance(seller, dict) and seller.get("type") == "amazon"
+
+        # Number of variations (size/color/etc.) — signals listing maturity
+        variations_count = item.get("variations_count")
+
         products.append({
             "title":             item.get("title", ""),
             "price":             price,
@@ -128,6 +150,13 @@ async def search_amazon_products(
             "is_best_seller":    is_best_seller,
             "is_amazon_choice":  is_amazon_choice,
             "is_prime":          is_amazon_choice or is_best_seller,
+            "bsr":               bsr_rank,
+            "bsr_category":      bsr_category,
+            "category":          real_category,
+            "discount_pct":      discount_pct,
+            "list_price":        list_price,
+            "sold_by_amazon":    sold_by_amazon,
+            "variations_count":  variations_count,
             "competition":       _competition_label(reviews),
             "opportunity":       _opportunity_label(price, reviews, bought_past_month),
             "source":            "dataforseo",

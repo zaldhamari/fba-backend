@@ -40,14 +40,45 @@ def analyze_niche(
     ]
     low_comp = [p for p in products if (p.get("review_count") or 999) < max_top_seller_reviews]
 
+    # ── BSR-based demand estimation ───────────────────────────────────────────
+    # Use real BSR data from DataForSEO to estimate actual monthly sales volume.
+    bsr_values = [p["bsr"] for p in products if p.get("bsr") and p["bsr"] > 0]
+    demand_data = None
+    total_monthly_revenue_est = None
+    avg_bsr = None
+    if bsr_values:
+        try:
+            from backend.services.bsr_sales_model import estimateNicheDemand, estimateMonthlySales, normalizeCategory
+            cats = [p.get("category") or p.get("bsr_category") for p in products if p.get("category") or p.get("bsr_category")]
+            primary_cat = cats[0] if cats else "default"
+            demand_data = estimateNicheDemand(bsr_values, primary_cat)
+            # Per-product revenue estimate for market size
+            revenue_sum = 0.0
+            for p in products:
+                if p.get("bsr") and p.get("price") and p["bsr"] > 0:
+                    est = estimateMonthlySales(p["bsr"], primary_cat)
+                    revenue_sum += est.monthly_sales * p["price"]
+            total_monthly_revenue_est = round(revenue_sum) if revenue_sum else None
+            avg_bsr = round(sum(bsr_values) / len(bsr_values))
+        except Exception:
+            pass
+
+    # How many listings Amazon itself sells (major competition moat signal)
+    sold_by_amazon_count = sum(1 for p in products if p.get("sold_by_amazon"))
+
+    # Price war signal: products actively discounting
+    discounting_count = sum(1 for p in products if (p.get("discount_pct") or 0) > 5)
+
     # ── Verdict ───────────────────────────────────────────────────────────────
     verdict = _derive_verdict(
         avg_price, avg_reviews, top_reviews, max_top_seller_reviews,
         price_min, price_max, budget,
+        demand_data=demand_data,
+        sold_by_amazon_count=sold_by_amazon_count,
     )
 
     # ── The Gap — weaknesses to exploit ──────────────────────────────────────
-    gap = _derive_gap(products, avg_rating)
+    gap = _derive_gap(products, avg_rating, discounting_count, sold_by_amazon_count)
 
     # ── Products to model (best fit for user's price + competition filters) ──
     modellable = sorted(
@@ -65,13 +96,19 @@ def analyze_niche(
         "marketplace": marketplace,
         "verdict": verdict,
         "market_snapshot": {
-            "avg_price":       avg_price,
-            "avg_reviews":     avg_reviews,
-            "avg_rating":      avg_rating,
-            "top_reviews":     top_reviews,
-            "total_products":  len(products),
-            "in_price_range":  len(in_price_range),
-            "low_competition": len(low_comp),
+            "avg_price":                  avg_price,
+            "avg_reviews":                avg_reviews,
+            "avg_rating":                 avg_rating,
+            "top_reviews":                top_reviews,
+            "total_products":             len(products),
+            "in_price_range":             len(in_price_range),
+            "low_competition":            len(low_comp),
+            "avg_bsr":                    avg_bsr,
+            "total_monthly_sales_est":    demand_data["total_monthly_sales"] if demand_data else None,
+            "avg_monthly_sales_est":      demand_data["avg_monthly_sales"]   if demand_data else None,
+            "total_monthly_revenue_est":  total_monthly_revenue_est,
+            "sold_by_amazon_count":       sold_by_amazon_count,
+            "discounting_count":          discounting_count,
         },
         "the_gap":             gap,
         "products_to_model":   modellable,
@@ -93,6 +130,8 @@ def _derive_verdict(
     price_min: float,
     price_max: float,
     budget: int,
+    demand_data: dict = None,
+    sold_by_amazon_count: int = 0,
 ) -> dict:
     score = 0
     reasons = []
@@ -120,11 +159,31 @@ def _derive_verdict(
         score += 1
         reasons.append("First order fits your budget")
     else:
-        warnings.append(f"First order may strain budget — consider starting smaller")
+        warnings.append("First order may strain budget — consider starting smaller")
 
-    if score >= 4:
+    # Real demand signal from BSR
+    if demand_data and demand_data.get("total_monthly_sales"):
+        total = demand_data["total_monthly_sales"]
+        avg   = demand_data["avg_monthly_sales"]
+        if total > 5000:
+            score += 2
+            reasons.append(f"Strong demand — ~{total:,} units/mo across top listings")
+        elif total > 1000:
+            score += 1
+            reasons.append(f"Decent demand — ~{total:,} units/mo across top listings")
+        else:
+            warnings.append(f"Low demand signal — only ~{total:,} units/mo estimated")
+
+    # Amazon itself selling = moat
+    if sold_by_amazon_count >= 3:
+        warnings.append(f"Amazon sells {sold_by_amazon_count} of these listings directly — hard to compete")
+    elif sold_by_amazon_count == 0:
+        score += 1
+        reasons.append("No Amazon-sold listings — third-party seller market")
+
+    if score >= 6:
         label, color = "Strong Opportunity", "green"
-    elif score >= 2:
+    elif score >= 3:
         label, color = "Moderate Opportunity", "amber"
     else:
         label, color = "Challenging Market", "red"
@@ -138,20 +197,25 @@ def _derive_verdict(
     }
 
 
-def _derive_gap(products: list[dict], avg_rating: float) -> list[str]:
+def _derive_gap(
+    products: list[dict],
+    avg_rating: float,
+    discounting_count: int = 0,
+    sold_by_amazon_count: int = 0,
+) -> list[str]:
     gaps = []
     low_rated = [p for p in products if p.get("rating") and p["rating"] < 4.0]
     if low_rated:
         gaps.append(f"{len(low_rated)} products rated under 4★ — quality gap to exploit")
 
     if avg_rating < 4.2:
-        gaps.append("Category average rating is below 4.2★ — customers want better")
+        gaps.append("Category average rating is below 4.2★ — customers want better quality")
 
     high_reviews_only = all(
         (p.get("review_count") or 0) > 500 for p in products[:5]
     )
     if high_reviews_only:
-        gaps.append("Top 5 products are entrenched — look for long-tail keyword variations")
+        gaps.append("Top 5 products are entrenched — target long-tail keyword variations")
 
     price_spread = max(
         (p["price"] for p in products if p.get("price")), default=0
@@ -159,7 +223,24 @@ def _derive_gap(products: list[dict], avg_rating: float) -> list[str]:
         (p["price"] for p in products if p.get("price")), default=0
     )
     if price_spread > 30:
-        gaps.append(f"${price_spread:.0f} price spread in market — room to own a price point")
+        gaps.append(f"${price_spread:.0f} price spread — room to own a defensible price point")
+
+    # Discounting signal: competitors cutting prices = margin pressure but also desperation
+    if discounting_count >= 3:
+        gaps.append(f"{discounting_count} sellers are actively discounting — position on value, not price")
+
+    # Few/no variations in top products = opportunity to launch a fuller variant set
+    no_variations = [p for p in products if not p.get("variations_count") or p["variations_count"] < 3]
+    if len(no_variations) >= len(products) // 2:
+        gaps.append("Most top listings have few variations — a multi-variant launch can dominate")
+
+    # High BSR variance = demand is concentrated in a few products (opportunity for split)
+    bsr_vals = [p["bsr"] for p in products if p.get("bsr") and p["bsr"] > 0]
+    if len(bsr_vals) >= 4:
+        best_bsr  = min(bsr_vals)
+        worst_bsr = max(bsr_vals)
+        if worst_bsr > best_bsr * 10:
+            gaps.append(f"BSR range #{best_bsr:,}–#{worst_bsr:,} — demand is concentrated at top; second-place slot is open")
 
     if not gaps:
         gaps.append("Market is fairly well-served — differentiate on branding and listing quality")
