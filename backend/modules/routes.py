@@ -125,9 +125,12 @@ async def amazon_research(req: ProductSearchRequest, user_id: str = None):
         if not allowed:
             raise HTTPException(status_code=429, detail=error)
 
-    # Use orchestrator: auto-routes through DataForSEO → AI → Keyword → Stub
-    result = await search_amazon_products(req.keyword, req.category or "all", max_results=15)
-    trends = await get_trends(req.keyword)
+    # Use orchestrator — run DataForSEO + Google Trends in parallel (saves 2-4s)
+    import asyncio as _asyncio
+    result, trends = await _asyncio.gather(
+        search_amazon_products(req.keyword, req.category or "all", max_results=15),
+        get_trends(req.keyword),
+    )
     response = {
         **result,  # Includes data_source + products with source tags
         "trends": trends,
