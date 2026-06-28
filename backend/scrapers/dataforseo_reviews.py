@@ -77,8 +77,12 @@ async def fetch_amazon_reviews(
             text = item.get("review_text") or item.get("text") or ""
             if not text or len(text) < 15:
                 continue
+            # DataForSEO returns rating as {"value": 5, "votes_count": 0, "rating_max": 5}
+            # Extract numeric value so sentiment comparisons (rating <= 3) work correctly
+            rating_raw = item.get("rating") or item.get("review_rating")
+            rating = rating_raw.get("value") if isinstance(rating_raw, dict) else rating_raw
             reviews.append({
-                "rating":        item.get("review_rating") or item.get("rating"),
+                "rating":        rating,
                 "text":          text.strip(),
                 "title":         item.get("title") or item.get("review_title") or "",
                 "verified":      bool(item.get("verified_purchase") or item.get("verified")),
@@ -103,8 +107,8 @@ def split_reviews_by_sentiment(reviews: list[dict]) -> tuple[list[str], list[str
         text   = r.get("text", "")
         if not text:
             continue
-        if rating and rating <= 3:
+        if rating is not None and rating <= 3:
             negative.append(text)
-        elif rating and rating >= 4:
+        elif rating is not None and rating >= 4:
             positive.append(text)
     return negative, positive
