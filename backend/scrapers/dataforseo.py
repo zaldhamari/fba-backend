@@ -88,26 +88,40 @@ async def search_amazon_products(
             continue
         if not item.get("title"):
             continue
-        # Price: DataForSEO uses several field names depending on listing type
+        # Price: DataForSEO may return price as a plain number OR a dict
+        # {"currency": "USD", "value": 29.99} — must unwrap before using.
         price_info_raw = item.get("price_info") or {}
+        def _extract_price(raw):
+            if raw is None:
+                return None
+            if isinstance(raw, dict):
+                v = raw.get("value") or raw.get("amount") or raw.get("price")
+                return float(v) if isinstance(v, (int, float)) and v > 0 else None
+            return float(raw) if isinstance(raw, (int, float)) and raw > 0 else None
+
         price = (
-            item.get("price_from")
-            or item.get("price")
-            or price_info_raw.get("current")
-            or price_info_raw.get("price")
-            or item.get("price_to")      # max of range is better than nothing
-            or price_info_raw.get("regular_price")
+            _extract_price(item.get("price_from"))
+            or _extract_price(item.get("price"))
+            or _extract_price(price_info_raw.get("current"))
+            or _extract_price(price_info_raw.get("price"))
+            or _extract_price(item.get("price_to"))
+            or _extract_price(price_info_raw.get("regular_price"))
         )
+
         # Rating: returned as {"value": 4.5, "votes_count": 1234} or plain float
-        rating_raw = item.get("rating")
-        rating_val = rating_raw.get("value") if isinstance(rating_raw, dict) else rating_raw
+        rating_raw  = item.get("rating")
+        rating_val  = rating_raw.get("value")   if isinstance(rating_raw, dict) else rating_raw
         votes_count = rating_raw.get("votes_count") if isinstance(rating_raw, dict) else None
+
         # Reviews: try several field names; fall back to votes_count from rating dict
+        def _to_int(v):
+            return int(v) if isinstance(v, (int, float)) and v > 0 else None
+
         reviews = (
-            item.get("reviews_count")
-            or (item.get("reviews_info") or {}).get("reviews_count")
-            or item.get("rating_count")
-            or votes_count
+            _to_int(item.get("reviews_count"))
+            or _to_int((item.get("reviews_info") or {}).get("reviews_count"))
+            or _to_int(item.get("rating_count"))
+            or _to_int(votes_count)
         )
         # Extract ASIN: prefer explicit field, then parse from URL, then hash title
         asin = item.get("asin", "") or ""

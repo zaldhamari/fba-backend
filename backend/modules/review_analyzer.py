@@ -44,7 +44,7 @@ async def fetch_real_reviews(asin: str, marketplace: str = "US") -> tuple[list[s
         return [], [], 0
     try:
         from backend.scrapers.dataforseo_reviews import fetch_amazon_reviews, split_reviews_by_sentiment
-        reviews = await fetch_amazon_reviews(asin=asin, marketplace=marketplace, max_results=50)
+        reviews = await fetch_amazon_reviews(asin=asin, marketplace=marketplace, max_results=12)
         neg, pos = split_reviews_by_sentiment(reviews)
         return neg, pos, len(reviews)
     except Exception:
@@ -147,8 +147,8 @@ def _ai_analyze(
     )
 
     if negative_reviews or positive_reviews:
-        neg_text = "\n".join(f"- {r}" for r in (negative_reviews or [])[:20])
-        pos_text = "\n".join(f"- {r}" for r in (positive_reviews or [])[:10])
+        neg_text = "\n".join(f"- {r}" for r in (negative_reviews or [])[:6])
+        pos_text = "\n".join(f"- {r}" for r in (positive_reviews or [])[:3])
         review_section = f"Negative reviews ({len(negative_reviews or [])} total):\n{neg_text}\n\nPositive reviews ({len(positive_reviews or [])} total):\n{pos_text}"
         if review_count:
             review_section = f"Based on {review_count} real Amazon reviews:\n" + review_section
@@ -174,7 +174,7 @@ Analyze this specific product and return JSON with product-specific insights (no
 }}"""
 
     try:
-        result = chat_json(system, user, max_tokens=600)
+        result = chat_json(system, user, max_tokens=400)
         result["source"] = data_source
         result["review_count"] = review_count
         return result
