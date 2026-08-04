@@ -62,7 +62,7 @@ async def search_amazon_products(
         "depth":         max_results,
     }]
 
-    async with httpx.AsyncClient(timeout28.00) as client:
+    async with httpx.AsyncClient(timeout=28.0) as client:
         resp = await client.post(
             f"{DATAFORSEO_BASE}/merchant/amazon/products/live/advanced",
             headers={
