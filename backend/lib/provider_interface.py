@@ -71,12 +71,25 @@ class DataSourceConfig:
         self.daily_requests_used = 0
         self.daily_reset_at = datetime.utcnow().isoformat()
 
+    def _maybe_reset_daily_usage(self) -> None:
+        """Reset the daily request counter once the UTC calendar day rolls over."""
+        now = datetime.utcnow()
+        try:
+            reset_at = datetime.fromisoformat(self.daily_reset_at)
+        except ValueError:
+            reset_at = now
+        if now.date() != reset_at.date():
+            self.daily_requests_used = 0
+            self.daily_reset_at = now.isoformat()
+
     def is_available(self) -> bool:
         """Check if provider is enabled and has capacity."""
+        self._maybe_reset_daily_usage()
         return self.enabled and self.daily_requests_used < self.rate_limit_per_day
 
     def get_status(self) -> ProviderStatus:
         """Get current operational status."""
+        self._maybe_reset_daily_usage()
         if not self.enabled:
             return ProviderStatus.NOT_CONFIGURED
         if not self.api_key and self.provider not in [ProviderType.AI_ESTIMATE, ProviderType.FALLBACK_ESTIMATE, ProviderType.STUB]:
