@@ -77,19 +77,37 @@ async def search_suppliers(
         resp.raise_for_status()
         data = resp.json()
 
-    raw_items = (
-        data.get("alibaba_icbu_product_search_response", {})
-            .get("result", {})
-            .get("products", {})
-            .get("product", [])
-    )
+    import logging as _log
+    _log.getLogger(__name__).info(f"[alibaba] raw response keys: {list(data.keys())}")
+
+    if "error_response" in data:
+        err = data["error_response"]
+        raise RuntimeError(f"Alibaba API error {err.get('code')}: {err.get('en_desc', err.get('zh_desc', 'unknown'))}")
+
+    resp_body = data.get("alibaba_icbu_product_search_response", {})
+    result    = resp_body.get("result", resp_body)
+
+    # API returns result.product (list) directly — not result.products.product
+    raw_items: list = result.get("product", [])
+    if not raw_items:
+        # Some response shapes nest under productList or products
+        raw_items = (
+            result.get("products", {}).get("product", [])
+            or result.get("productList", {}).get("callbackResult", [])
+            or []
+        )
+
+    _log.getLogger(__name__).info(f"[alibaba] parsed {len(raw_items)} raw items for '{product}'")
 
     currency = MARKETPLACE_TO_CURRENCY.get(marketplace, "USD")
     suppliers = []
     for item in raw_items:
         price_range = item.get("priceRange", {})
-        p_min = float(price_range.get("from", 0))
-        p_max = float(price_range.get("to", p_min * 1.3))
+        try:
+            p_min = float(price_range.get("from", 0) or 0)
+            p_max = float(price_range.get("to", 0) or p_min * 1.3)
+        except (TypeError, ValueError):
+            p_min, p_max = 0.0, 0.0
 
         moq_val = int(item.get("minOrderQuantity", 100))
         if max_moq and moq_val > max_moq:
