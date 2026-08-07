@@ -16,6 +16,7 @@ import logging
 from backend.modules.ai_client import AI_AVAILABLE
 from backend.scrapers.dataforseo import _is_configured as _is_dataforseo_configured, search_amazon_products as dataforseo_search
 from backend.scrapers.alibaba_api import search_suppliers as alibaba_search
+from backend.scrapers.alibaba import search_alibaba as alibaba_link_search
 
 from .provider_interface import (
     ProviderType,
@@ -265,21 +266,12 @@ class DataSourceRouterImpl(ProviderRouter):
             raise NotImplementedError("Made-in-China not yet implemented")
 
         elif provider_type == ProviderType.FALLBACK_ESTIMATE:
-            # Deterministic placeholder suppliers
-            return {
-                "suppliers": [
-                    {
-                        "title": f"Factory XYZ - {product}",
-                        "supplier": "Estimated Supplier",
-                        "price_range": (5.0, 15.0),
-                        "moq": 100,
-                        "rating": 4.2,
-                        "verified": False,
-                        "source": "fallback_estimate",
-                    }
-                ],
-                "data_source": "fallback_estimate",
-            }
+            # Use the link-based supplier generator — returns 5-6 platform leads
+            # with properly-structured price_range dicts and real platform URLs.
+            suppliers = await alibaba_link_search(product, max_price=max_unit_price)
+            for s in suppliers:
+                s["source"] = "fallback_estimate"
+            return {"suppliers": suppliers, "data_source": "fallback_estimate"}
 
         elif provider_type == ProviderType.STUB:
             return {
@@ -287,7 +279,7 @@ class DataSourceRouterImpl(ProviderRouter):
                     {
                         "title": f"Stub Supplier - {product}",
                         "supplier": "Test Supplier",
-                        "price_range": (4.0, 12.0),
+                        "price_range": {"min": 4.0, "max": 12.0},
                         "moq": 100,
                         "rating": None,
                         "verified": False,

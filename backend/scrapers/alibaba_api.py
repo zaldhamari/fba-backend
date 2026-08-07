@@ -18,7 +18,49 @@ import time
 from typing import Optional
 import httpx
 
-ALIBABA_GATEWAY = "https://eco.taobao.com/router/rest"
+ALIBABA_GATEWAY   = "https://eco.taobao.com/router/rest"
+ALIBABA_TOKEN_URL = "https://oauth.alibaba.com/token"
+
+# In-memory token cache — seeded from env on first call, updated on refresh
+_token_cache: dict = {}
+
+
+def _get_tokens() -> tuple[str, str]:
+    """Return (access_token, refresh_token), reading from cache then env."""
+    return (
+        _token_cache.get("access_token")  or os.environ.get("ALIBABA_ACCESS_TOKEN",  ""),
+        _token_cache.get("refresh_token") or os.environ.get("ALIBABA_REFRESH_TOKEN", ""),
+    )
+
+
+async def _refresh_access_token() -> str | None:
+    """Exchange refresh_token for a new access_token. Returns new token or None."""
+    app_key    = os.environ.get("ALIBABA_APP_KEY", "")
+    app_secret = os.environ.get("ALIBABA_APP_SECRET", "")
+    _, refresh_token = _get_tokens()
+    if not refresh_token:
+        return None
+    import logging as _log
+    log = _log.getLogger(__name__)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(ALIBABA_TOKEN_URL, data={
+                "grant_type":    "refresh_token",
+                "client_id":     app_key,
+                "client_secret": app_secret,
+                "refresh_token": refresh_token,
+            })
+            data = resp.json()
+        if "access_token" in data:
+            _token_cache["access_token"]  = data["access_token"]
+            _token_cache["refresh_token"] = data.get("refresh_token", refresh_token)
+            log.info(f"[alibaba] token refreshed successfully")
+            return data["access_token"]
+        log.warning(f"[alibaba] token refresh failed: {data}")
+        return None
+    except Exception as e:
+        log.warning(f"[alibaba] token refresh error: {e}")
+        return None
 
 MARKETPLACE_TO_CURRENCY = {
     "US": "USD", "UK": "GBP", "DE": "EUR", "CA": "CAD", "AU": "AUD",
@@ -51,41 +93,53 @@ async def search_suppliers(
         return _stub_results(product, marketplace, max_unit_price, max_moq, max_results)
     # ───────────────────────────────────────────────────────────────────
 
-    app_key      = os.environ.get("ALIBABA_APP_KEY", "")
-    app_secret   = os.environ.get("ALIBABA_APP_SECRET", "")
-    access_token = os.environ.get("ALIBABA_ACCESS_TOKEN", "")
-
-    params = {
-        "method":        "alibaba.icbu.product.search",
-        "app_key":       app_key,
-        "timestamp":     str(int(time.time() * 1000)),
-        "format":        "json",
-        "v":             "2.0",
-        "sign_method":   "md5",
-        "keywords":      product,
-        "page_index":    "1",
-        "page_size":     str(min(max_results, 20)),
-        "sort_type":     "BEST_MATCH",
-    }
-    if access_token:
-        params["access_token"] = access_token
-    if max_unit_price:
-        params["price_from"] = "0"
-        params["price_to"]   = str(max_unit_price)
-
-    params["sign"] = _sign(params, app_secret)
-
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(ALIBABA_GATEWAY, data=params)
-        resp.raise_for_status()
-        data = resp.json()
-
     import logging as _log
-    _log.getLogger(__name__).info(f"[alibaba] raw response keys: {list(data.keys())}")
+    log = _log.getLogger(__name__)
+
+    app_key    = os.environ.get("ALIBABA_APP_KEY", "")
+    app_secret = os.environ.get("ALIBABA_APP_SECRET", "")
+
+    async def _do_request(token: str) -> dict:
+        params = {
+            "method":      "alibaba.icbu.product.search",
+            "app_key":     app_key,
+            "timestamp":   str(int(time.time() * 1000)),
+            "format":      "json",
+            "v":           "2.0",
+            "sign_method": "md5",
+            "keywords":    product,
+            "page_index":  "1",
+            "page_size":   str(min(max_results, 20)),
+            "sort_type":   "BEST_MATCH",
+        }
+        if token:
+            params["access_token"] = token
+        if max_unit_price:
+            params["price_from"] = "0"
+            params["price_to"]   = str(max_unit_price)
+        params["sign"] = _sign(params, app_secret)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(ALIBABA_GATEWAY, data=params)
+            r.raise_for_status()
+        return r.json()
+
+    access_token, _ = _get_tokens()
+    data = await _do_request(access_token)
+    log.info(f"[alibaba] raw response keys: {list(data.keys())}")
 
     if "error_response" in data:
-        err = data["error_response"]
-        raise RuntimeError(f"Alibaba API error {err.get('code')}: {err.get('en_desc', err.get('zh_desc', 'unknown'))}")
+        err  = data["error_response"]
+        code = err.get("code")
+        # error 22 = invalid/expired session — try refreshing once
+        if code == 22 or str(code) == "22":
+            log.warning("[alibaba] access_token expired (error 22), attempting refresh")
+            new_token = await _refresh_access_token()
+            if new_token:
+                data = await _do_request(new_token)
+                log.info(f"[alibaba] retry response keys: {list(data.keys())}")
+        if "error_response" in data:
+            err = data["error_response"]
+            raise RuntimeError(f"Alibaba API error {err.get('code')}: {err.get('en_desc', err.get('zh_desc', 'unknown'))}")
 
     resp_body = data.get("alibaba_icbu_product_search_response", {})
     result    = resp_body.get("result", resp_body)
