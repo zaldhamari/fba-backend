@@ -873,57 +873,163 @@ async def freight_intel(req: FreightIntelRequest):
 # ─── Supplier Analysis ────────────────────────────────────────────────────────
 
 class AnalyzeSupplierRequest(BaseModel):
-    product_name:  Optional[str]       = None
-    name:          Optional[str]       = None   # supplier name alias
-    platform:      Optional[str]       = "Alibaba"
-    unit_cost:     Optional[float]     = None
-    moq:           Optional[int]       = None
-    selling_price: Optional[float]     = None
-    country:       Optional[str]       = "CN"
-    years:         Optional[int]       = None
-    products:      Optional[List[str]] = None
-    rating:        Optional[float]     = None
+    product_name:     Optional[str]       = None
+    name:             Optional[str]       = None
+    platform:         Optional[str]       = "Alibaba"
+    unit_cost:        Optional[float]     = None
+    moq:              Optional[int]       = None
+    selling_price:    Optional[float]     = None
+    country:          Optional[str]       = "CN"
+    years:            Optional[int]       = None
+    products:         Optional[List[str]] = None
+    rating:           Optional[float]     = None
+    lead_time_days:   Optional[int]       = None
+    is_gold_supplier: Optional[bool]      = False
+    trade_assurance:  Optional[bool]      = False
+    recon_complaints: Optional[List[str]] = None
+    marketplace:      Optional[str]       = "US"
 
 
 @router.post("/research/analyze-supplier")
 async def analyze_supplier(req: AnalyzeSupplierRequest):
-    supplier_name = req.name or req.product_name or "Supplier"
-    score = 70
-    if req.years and req.years >= 3:
-        score += 10
-    if req.rating and req.rating >= 4.5:
-        score += 10
-    if req.moq and req.moq <= 200:
-        score += 5
-    score = min(score, 100)
+    unit_cost     = req.unit_cost or 0.0
+    selling_price = req.selling_price or 0.0
+    moq           = req.moq or 200
+    lead_time     = req.lead_time_days or 30
 
-    flags: list = []
-    if req.years and req.years < 2:
-        flags.append("New supplier — request samples before committing")
-    if req.moq and req.moq > 1000:
-        flags.append("High MOQ — negotiate down or split with another buyer")
+    # ── Signals ───────────────────────────────────────────────────────────────
+    landed_per_unit   = round(unit_cost * 1.35, 2)
+    freight_per_unit  = round(unit_cost * 0.12, 2)
+    fba_fee           = round(selling_price * 0.15 + 3.22, 2) if selling_price else None
+    investment_usd    = round(unit_cost * moq, 2)
+    landed_total      = round(landed_per_unit * moq, 2)
 
-    margin = None
-    if req.unit_cost and req.selling_price:
-        landed_unit = req.unit_cost * 1.4
-        margin = round((req.selling_price - landed_unit) / req.selling_price * 100, 1)
+    roi_pct    = round((selling_price - landed_per_unit) / landed_per_unit * 100, 1) if selling_price and landed_per_unit else 0.0
+    margin_pct = round((selling_price - landed_per_unit) / selling_price * 100, 1)   if selling_price else 0.0
 
-    moq_units  = req.moq or 200
-    investment = round(req.unit_cost * moq_units, 2)       if req.unit_cost else None
-    landed     = round(req.unit_cost * 1.4 * moq_units, 2) if req.unit_cost else None
-    fba_fee    = round(req.selling_price * 0.15 + 3.22, 2)  if req.selling_price else None
+    moq_risk = "Low" if moq <= 100 else "High" if moq > 500 else "Medium"
+    lead_risk = "Low" if lead_time <= 21 else "High" if lead_time > 45 else "Medium"
+
+    cashflow_stress = (
+        "Low"    if investment_usd < 500   else
+        "High"   if investment_usd > 3000  else
+        "Medium"
+    )
+
+    # Platform trust score (0-100)
+    platform_trust = 50
+    if req.is_gold_supplier:   platform_trust += 20
+    if req.trade_assurance:    platform_trust += 15
+    if req.rating and req.rating >= 4.5: platform_trust += 10
+    if req.years and req.years >= 3:     platform_trust += 5
+    platform_trust = min(platform_trust, 100)
+
+    signals = {
+        "roi_pct":           roi_pct,
+        "margin_pct":        margin_pct,
+        "moq_risk":          moq_risk,
+        "lead_time_risk":    lead_risk,
+        "cashflow_stress":   cashflow_stress,
+        "platform_trust":    platform_trust,
+        "investment_usd":    investment_usd,
+        "landed_cost_usd":   landed_per_unit,
+        "rough_freight_usd": round(freight_per_unit * moq, 2),
+        "fba_fee_est_usd":   fba_fee,
+    }
+
+    # ── Verdict logic ─────────────────────────────────────────────────────────
+    reasons: list[str] = []
+    risk_flags: list[str] = []
+
+    if roi_pct >= 35:
+        reasons.append(f"Strong ROI of ~{roi_pct:.0f}% after landed cost")
+    elif roi_pct >= 20:
+        reasons.append(f"Acceptable ROI of ~{roi_pct:.0f}% — leave room for PPC spend")
+    elif roi_pct > 0:
+        risk_flags.append(f"Thin ROI of ~{roi_pct:.0f}% — margins are tight after FBA fees")
+    else:
+        risk_flags.append("No selling price provided — ROI unknown, verify before committing")
+
+    if platform_trust >= 75:
+        reasons.append(f"High platform trust score ({platform_trust}/100) — Gold Supplier or Trade Assurance active")
+    elif platform_trust >= 50:
+        reasons.append(f"Moderate trust ({platform_trust}/100) — request a verified sample before bulk order")
+    else:
+        risk_flags.append(f"Low trust score ({platform_trust}/100) — no Gold Supplier or Trade Assurance status")
+
+    if moq_risk == "Low":
+        reasons.append(f"Low MOQ of {moq} units reduces entry risk")
+    elif moq_risk == "High":
+        risk_flags.append(f"High MOQ of {moq} units — negotiate down or find a co-buyer")
+
+    if cashflow_stress == "Low":
+        reasons.append(f"Manageable initial investment (~${investment_usd:,.0f})")
+    elif cashflow_stress == "High":
+        risk_flags.append(f"High upfront investment (~${investment_usd:,.0f}) — stress-test your cashflow")
+
+    if req.recon_complaints:
+        risk_flags.append(f"Recon flagged issue: "{req.recon_complaints[0]}"")
+
+    recon_alignment: Optional[str] = None
+    if req.recon_complaints:
+        recon_alignment = (
+            f"Customer feedback mentions: {'; '.join(req.recon_complaints[:2])}. "
+            "Confirm with supplier that they can address these before ordering."
+        )
+
+    # Determine verdict
+    bad_roi    = roi_pct < 15 and selling_price > 0
+    high_risk  = len(risk_flags) >= 3
+    needs_neg  = moq_risk == "High" or cashflow_stress == "High" or (15 <= roi_pct < 25)
+
+    if bad_roi or high_risk:
+        verdict    = "AVOID"
+        confidence = min(90, 55 + len(risk_flags) * 8)
+        summary    = (
+            f"This supplier doesn't meet the profitability threshold for {req.product_name or 'this product'}. "
+            f"ROI of ~{roi_pct:.0f}% is too thin once you factor in PPC, returns, and storage fees."
+            if bad_roi else
+            f"Too many risk signals to proceed comfortably. Address the flags below before reconsidering."
+        )
+        next_step  = "Look for alternative suppliers with lower MOQ and better platform trust, or renegotiate unit price."
+    elif needs_neg:
+        verdict    = "NEGOTIATE"
+        confidence = min(88, 60 + len(reasons) * 5)
+        summary    = (
+            f"This supplier has potential but the terms need improvement before you commit. "
+            f"Target a lower unit cost or MOQ reduction to hit your margin goals."
+        )
+        next_step  = "Request a sample order first. Negotiate MOQ down to 100–200 units and ask for a price break at 500 units."
+    else:
+        verdict    = "GO"
+        confidence = min(92, 65 + len(reasons) * 6)
+        summary    = (
+            f"Strong sourcing option for {req.product_name or 'this product'}. "
+            f"ROI looks healthy at ~{roi_pct:.0f}% and trust signals are solid. Request a sample to confirm quality."
+        )
+        next_step  = "Request a sample (5–10 units) and start supplier communication. Lock in pricing before committing to full MOQ."
+
+    negotiation_tips = [
+        f"Open at 15–20% below their listed unit price of ${unit_cost:.2f}",
+        "Ask for a sample order at 50% discount — legitimate factories agree to this",
+        f"Propose MOQ of {max(50, moq // 2)} units for your first order, scaling to {moq} on reorder",
+        "Request payment terms: 30% deposit, 70% on delivery for orders over $2,000",
+    ]
+    if req.trade_assurance:
+        negotiation_tips.append("Insist on Trade Assurance protection — already available with this supplier")
+
+    all_reasons = reasons + [f"⚠ {f}" for f in risk_flags]
 
     return {
-        "supplier":              supplier_name,
-        "platform":              req.platform,
-        "score":                 score,
-        "recommendation":        "proceed" if score >= 70 else "caution",
-        "flags":                 flags,
-        "estimated_margin_pct":  margin,
-        "investment_usd":        investment,
-        "landed_cost_usd":       landed,
-        "rough_freight_usd":     None,
-        "fba_fee_est_usd":       fba_fee,
+        "verdict":           verdict,
+        "confidence":        confidence,
+        "summary":           summary,
+        "reasons":           all_reasons,
+        "risk":              risk_flags[0] if risk_flags else None,
+        "next_step":         next_step,
+        "negotiation_tips":  negotiation_tips,
+        "recon_alignment":   recon_alignment,
+        "signals":           signals,
     }
 
 
