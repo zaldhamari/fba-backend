@@ -51,8 +51,9 @@ async def search_suppliers(
         return _stub_results(product, marketplace, max_unit_price, max_moq, max_results)
     # ───────────────────────────────────────────────────────────────────
 
-    app_key    = os.environ.get("ALIBABA_APP_KEY", "")
-    app_secret = os.environ.get("ALIBABA_APP_SECRET", "")
+    app_key      = os.environ.get("ALIBABA_APP_KEY", "")
+    app_secret   = os.environ.get("ALIBABA_APP_SECRET", "")
+    access_token = os.environ.get("ALIBABA_ACCESS_TOKEN", "")
 
     params = {
         "method":        "alibaba.icbu.product.search",
@@ -66,6 +67,8 @@ async def search_suppliers(
         "page_size":     str(min(max_results, 20)),
         "sort_type":     "BEST_MATCH",
     }
+    if access_token:
+        params["access_token"] = access_token
     if max_unit_price:
         params["price_from"] = "0"
         params["price_to"]   = str(max_unit_price)
