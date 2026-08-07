@@ -968,7 +968,7 @@ async def analyze_supplier(req: AnalyzeSupplierRequest):
         risk_flags.append(f"High upfront investment (~${investment_usd:,.0f}) — stress-test your cashflow")
 
     if req.recon_complaints:
-        risk_flags.append(f"Recon flagged issue: "{req.recon_complaints[0]}"")
+        risk_flags.append(f"Recon flagged issue: '{req.recon_complaints[0]}'")
 
     recon_alignment: Optional[str] = None
     if req.recon_complaints:
